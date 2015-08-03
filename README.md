@@ -121,12 +121,12 @@ AI程序由服务器启动。AI先发送加入信息。
 {"type":"join"}
 ```
 
-当四位AI都加入比赛之后，服务器会把信息广播给所有AI。
+当四位AI都加入比赛之后，服务器会把id号发送给AI。
 
 标准输入：
 
 ```json
-{"type":"ready","players":[{"name":"tom","id":1},{"name":"john","id":2},{"name":"dave","id":3},{"name":"peter","id":4}]}
+{"type":"ready","id":3}
 ```
 
 ### 开始比赛
