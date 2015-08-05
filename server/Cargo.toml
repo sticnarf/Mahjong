@@ -5,4 +5,3 @@ authors = ["yilin <wormful@gmail.com>"]
 
 [dependencies]
 rand = "0.3.9"
-serde = "0.4.3"
