@@ -10,6 +10,7 @@ use rand::*;
 use std::sync::*;
 use std::sync::mpsc::*;
 use std::collections::*;
+use std::cmp::*;
 use time::*;
 
 fn main() {
@@ -54,7 +55,11 @@ fn gen_seed() -> [usize; 8] {
 }
 
 struct Tiles {
-    v: Vec<String>
+    hands: Vec<String>,
+    chows: Vec<String>,
+    pungs: Vec<String>,
+    kongs: Vec<String>,
+    ckongs: Vec<String>
 }
 
 struct Game {
@@ -64,9 +69,12 @@ struct Game {
     inputs: Vec<ChildStdin>,
     join_counter: HashSet<usize>,
     action_id: usize,
-    inhand: Vec<Tiles>,
+    tiles: Vec<Tiles>,
     left: Vec<String>,
-    last_time: PreciseTime
+    last_time: PreciseTime,
+    last_tile: String,
+    score: [i64; 4],
+    messages: HashMap<usize, Message>
 }
 
 impl Game {
@@ -92,9 +100,12 @@ impl Game {
             inputs: Vec::new(),
             join_counter: HashSet::new(),
             action_id: 0,
-            inhand: Vec::new(),
+            tiles: Vec::new(),
             left: left,
-            last_time: PreciseTime::now()
+            last_time: PreciseTime::now(),
+            score: [0; 4],
+            last_tile: String::new(),
+            messages: HashMap::new()
         }
     }
 
@@ -130,6 +141,16 @@ impl Game {
     }
 
     fn process(&mut self, msg: Message) {
+        // BUG: 如果某AI在此时疯狂发指令，会导致后发指令的其它AI的指令超时而舍弃
+        if self.stage == "outwait" {
+            if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                self.messages.insert(msg.id, msg);
+                return;
+            } else {
+                self.outwait();
+                return;
+            }
+        }
         let v: Vec<&str> = msg.message.split('_').collect();
         match v[0] {
             "join" => self.join(msg.id),
@@ -164,14 +185,18 @@ impl Game {
     fn init(&mut self) {
         for i in 0..4 {
             let mut output = "init".to_string();
-            self.inhand.push(Tiles {
-                v: Vec::new()
+            self.tiles.push(Tiles {
+                hands: Vec::new(),
+                chows: Vec::new(),
+                pungs: Vec::new(),
+                kongs: Vec::new(),
+                ckongs: Vec::new()
             });
             for _ in 0..13 {
                 let tile = self.left.pop().unwrap();
                 output.push_str(" ");
                 output.push_str(&tile);
-                self.inhand[i].v.push(tile);
+                self.tiles[i].hands.push(tile);
             }
             output.push_str("\n");
             self.inputs[i].write(output.as_bytes()).ok();
@@ -185,6 +210,7 @@ impl Game {
             self.draw();
         }
         let tile = self.left.pop().unwrap();
+        self.tiles[self.action_id].hands.push(tile.clone());
         self.inputs[self.action_id].write(format!("pick {}\n", tile).to_string().as_bytes()).ok();
         self.inputs[self.action_id].flush().ok();
         for i in 0..4 {
@@ -194,15 +220,21 @@ impl Game {
             self.inputs[i].flush().ok();
         }
         self.stage = "out".to_string();
+        self.last_tile = tile;
+        self.last_time = PreciseTime::now();
     }
 
     fn out(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
             return;
         }
-        match self.inhand[id].v.iter().position(|x| *x == tile) {
+        match self.tiles[id].hands.iter().position(|x| *x == tile) {
             Some(index) => {
-                self.inhand[id].v.remove(index);
+                let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
+                if duration >= 1050 {
+                    self.score[id] -= (duration - 950) / 100;
+                }
+                self.tiles[id].hands.remove(index);
                 for i in 0..4 {
                     if i == self.action_id { continue; }
                     self.inputs[i]
@@ -212,6 +244,8 @@ impl Game {
                         .ok();
                     self.inputs[i].flush().ok();
                 }
+                self.last_tile = tile;
+                self.stage = "outwait".to_string();
                 self.last_time = PreciseTime::now();
             },
             None => {
@@ -220,12 +254,121 @@ impl Game {
         }
     }
 
+    fn outwait(&mut self) {
+        let mut messages = Vec::new();
+        for _msg in self.messages.values() {
+            messages.push(_msg.clone());
+        }
+        messages.sort_by(|a, b| {
+            let o1 = match a.message.split('_').next().unwrap() {
+                "hu" => (a.id + 4 - self.action_id) % 4,
+                "gang" => 16,
+                "peng" => 64,
+                "chi" => 254,
+                _ => 255
+            };
+            let o2 = match b.message.split('_').next().unwrap() {
+                "hu" => (b.id + 4 - self.action_id) % 4,
+                "gang" => 16,
+                "peng" => 64,
+                "chi" => 254,
+                _ => 255
+            };
+            o1.cmp(&o2)
+        });
+        let mut chi = false;
+        for msg in messages {
+            if msg.id == self.action_id { continue; }
+            let v: Vec<&str> = msg.message.split('_').collect();
+            match v[0] {
+                "hu" => {
+                    if self.hu(msg.id) {
+                        return;
+                    }
+                },
+                "gang" => {
+                    if self.gang(msg.id, v[1]) {
+                        break;
+                    }
+                },
+                "peng" => {
+                    if self.peng(msg.id, v[1]) {
+                        break;
+                    }
+                },
+                "chi" => {
+                    if self.chi(msg.id, v[1]) {
+                        chi = true;
+                        break;
+                    }
+                },
+                _ => ()
+            }
+        }
+        if !chi {
+            let post = post_pos(self.action_id);
+            match self.messages.get(&post) {
+                Some(msg) => {
+                    if msg.message.split('_').next().unwrap() == "chi" {
+                        self.inputs[post].write("mfail\n".to_string().as_bytes()).ok();
+                        self.inputs[post].flush().ok();
+                    }
+                },
+                None => ()
+            }
+        }
+    }
+
+    fn hu(&mut self, id: usize) -> bool {
+        //TODO
+        return false;
+    }
+
+    fn gang(&mut self, id: usize, tile: &str) -> bool {
+        //TODO
+        return false;
+    }
+
+    fn peng(&mut self, id: usize, tile: &str) -> bool {
+        //TODO
+        return false;
+    }
+
+    fn chi(&mut self, id: usize, tile: &str) -> bool {
+        //TODO
+        return false;
+    }
+
     fn draw(&mut self) {
         //TODO
     }
 }
 
+#[derive(Clone)]
 struct Message {
     id: usize,
     message: String
+}
+
+fn post(tile: String) -> Option<String> {
+    let chars: Vec<char> = tile.chars().collect();
+    if tile.len() == 2 {
+        let kind = chars[0];
+        if kind == 'M' || kind == 'T' || kind == 'S' {
+            let num = match chars[1].to_digit(10) {
+                Some(x) => x,
+                None => {
+                    return None;
+                }
+            };
+            if num < 9 && num > 0 {
+                return Some(format!("{}{}", kind, num + 1));
+            }
+        }
+    }
+    return None;
+}
+
+fn post_pos(pos: usize) -> usize {
+    return (pos + 1) % 4;
 }
