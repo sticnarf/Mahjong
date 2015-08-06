@@ -8,7 +8,7 @@ use std::env;
 use rand::*;
 use std::sync::*;
 use std::sync::mpsc::*;
-use std::collections::HashMap;
+use std::collections::*;
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -37,7 +37,7 @@ fn main() {
                 args[position[0]].clone(), args[position[1]].clone(), args[position[2]].clone(),
                 args[position[3]].clone()
             ];
-            let game = Game::new(paths, rng);
+            let mut game = Game::new(paths, rng);
             game.start();
         }
     }
@@ -53,19 +53,24 @@ fn gen_seed() -> [usize; 8] {
 
 struct Game {
     rng: StdRng,
-    paths: [String; 4]
+    paths: [String; 4],
+    stage: String,
+    inputs: Vec<ChildStdin>,
+    join_counter: HashSet<usize>,
 }
 
 impl Game {
     fn new(paths: [String; 4], rng: StdRng) -> Game {
         Game {
             rng: rng,
-            paths: paths
+            paths: paths,
+            stage: "join".to_string(),
+            inputs: Vec::new(),
+            join_counter: HashSet::new()
         }
     }
 
-    fn start(&self) {
-        let mut inputs = Vec::new();
+    fn start(&mut self) {
         let (tx, rx) = mpsc::channel();
         for i in 0..4 {
             let command = Command::new(&self.paths[i])
@@ -73,7 +78,7 @@ impl Game {
                               .stdout(Stdio::piped())
                               .spawn()
                               .unwrap();
-            inputs.push(command.stdin.unwrap());
+            self.inputs.push(command.stdin.unwrap());
             let tx = tx.clone();
             let mut output = BufReader::new(command.stdout.unwrap());
             thread::spawn(move || {
@@ -92,8 +97,25 @@ impl Game {
         }
         loop {
             let msg = rx.recv().ok().unwrap();
-            let id = msg.id;
-            let message = msg.message;
+            self.process(msg);
+        }
+    }
+
+    fn process(&mut self, msg: Message) {
+        let v: Vec<&str> = msg.message.split('_').collect();
+        match v[0] {
+            "join" => self.join(msg.id),
+            _ => ()
+        }
+    }
+
+    fn join(&mut self, id: usize) {
+        self.join_counter.insert(id);
+        if self.join_counter.len() == 4 {
+            for i in 0..4 {
+                self.inputs[i].write(format!("id {}\n", i).as_bytes()).ok();
+                self.inputs[i].flush().ok();
+            }
         }
     }
 }
