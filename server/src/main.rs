@@ -38,7 +38,7 @@ fn main() {
                 args[position[3]].clone()
             ];
             let mut game = Game::new(paths, rng);
-            game.start();
+            game.run();
         }
     }
 }
@@ -51,26 +51,50 @@ fn gen_seed() -> [usize; 8] {
     seed
 }
 
+struct Tiles {
+    v: Vec<String>
+}
+
 struct Game {
     rng: StdRng,
     paths: [String; 4],
     stage: String,
     inputs: Vec<ChildStdin>,
     join_counter: HashSet<usize>,
+    action_id: usize,
+    inhand: Vec<Tiles>,
+    left: Vec<String>
 }
 
 impl Game {
     fn new(paths: [String; 4], rng: StdRng) -> Game {
+        let tiles = [
+            "1M", "2M", "3M", "4M", "5M", "6M", "7M", "8M", "9M", "1S", "2S", "3S", "4S", "5S",
+            "6S", "7S", "8S", "9S", "1T", "2T", "3T", "4T", "5T", "6T", "7T", "8T", "9T", "E", "S",
+            "W", "N", "Z", "F", "B", "1M", "2M", "3M", "4M", "5M", "6M", "7M", "8M", "9M", "1S",
+            "2S", "3S", "4S", "5S", "6S", "7S", "8S", "9S", "1T", "2T", "3T", "4T", "5T", "6T",
+            "7T", "8T", "9T", "E", "S", "W", "N", "Z", "F", "B", "1M", "2M", "3M", "4M", "5M",
+            "6M", "7M", "8M", "9M", "1S", "2S", "3S", "4S", "5S", "6S", "7S", "8S", "9S", "1T",
+            "2T", "3T", "4T", "5T", "6T", "7T", "8T", "9T", "E", "S", "W", "N", "Z", "F", "B",
+            "1M", "2M", "3M", "4M", "5M", "6M", "7M", "8M", "9M", "1S", "2S", "3S", "4S", "5S",
+            "6S", "7S", "8S", "9S", "1T", "2T", "3T", "4T", "5T", "6T", "7T", "8T", "9T", "E", "S",
+            "W", "N", "Z", "F", "B"
+        ];
+        let mut left: Vec<_> = tiles.iter().map(|x| x.to_string()).collect();
+        rng.clone().shuffle(&mut left);
         Game {
             rng: rng,
             paths: paths,
             stage: "join".to_string(),
             inputs: Vec::new(),
-            join_counter: HashSet::new()
+            join_counter: HashSet::new(),
+            action_id: 0,
+            inhand: Vec::new(),
+            left: left
         }
     }
 
-    fn start(&mut self) {
+    fn run(&mut self) {
         let (tx, rx) = mpsc::channel();
         for i in 0..4 {
             let command = Command::new(&self.paths[i])
@@ -110,13 +134,65 @@ impl Game {
     }
 
     fn join(&mut self, id: usize) {
+        if self.stage != "join" {
+            return;
+        }
         self.join_counter.insert(id);
         if self.join_counter.len() == 4 {
             for i in 0..4 {
                 self.inputs[i].write(format!("id {}\n", i).as_bytes()).ok();
                 self.inputs[i].flush().ok();
             }
+            self.start();
         }
+    }
+
+    fn start(&mut self) {
+        self.action_id = self.rng.gen_range(0, 4);
+        for i in 0..4 {
+            self.inputs[i].write(format!("first {}\n", i).as_bytes()).ok();
+            self.inputs[i].flush().ok();
+        }
+        self.init();
+    }
+
+    fn init(&mut self) {
+        for i in 0..4 {
+            let mut output = "init".to_string();
+            self.inhand.push(Tiles {
+                v: Vec::new()
+            });
+            for _ in 0..13 {
+                let tile = self.left.pop().unwrap();
+                output.push_str(" ");
+                output.push_str(&tile);
+                self.inhand[i].v.push(tile);
+            }
+            output.push_str("\n");
+            self.inputs[i].write(output.as_bytes()).ok();
+            self.inputs[i].flush().ok();
+        }
+        self.pick();
+    }
+
+    fn pick(&mut self) {
+        if self.left.len() == 0{
+            self.draw();
+        }
+        let tile = self.left.pop().unwrap();
+        self.inputs[self.action_id].write(format!("pick {}\n", tile).to_string().as_bytes()).ok();
+        self.inputs[self.action_id].flush().ok();
+        for i in 0..4 {
+            if i != self.action_id {
+                self.inputs[i].write(format!("mpick {}\n",self.action_id).to_string().as_bytes()).ok();
+                self.inputs[i].flush().ok();
+            }
+        }
+        self.stage = "out".to_string();
+    }
+
+    fn draw(&mut self){
+        //TODO
     }
 }
 
