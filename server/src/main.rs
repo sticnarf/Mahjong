@@ -1,4 +1,5 @@
 extern crate rand;
+extern crate time;
 
 use std::process;
 use std::process::*;
@@ -9,6 +10,7 @@ use rand::*;
 use std::sync::*;
 use std::sync::mpsc::*;
 use std::collections::*;
+use time::*;
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -63,7 +65,8 @@ struct Game {
     join_counter: HashSet<usize>,
     action_id: usize,
     inhand: Vec<Tiles>,
-    left: Vec<String>
+    left: Vec<String>,
+    last_time: PreciseTime
 }
 
 impl Game {
@@ -90,7 +93,8 @@ impl Game {
             join_counter: HashSet::new(),
             action_id: 0,
             inhand: Vec::new(),
-            left: left
+            left: left,
+            last_time: PreciseTime::now()
         }
     }
 
@@ -129,6 +133,7 @@ impl Game {
         let v: Vec<&str> = msg.message.split('_').collect();
         match v[0] {
             "join" => self.join(msg.id),
+            "out" => self.out(msg.id, v[1].to_string()),
             _ => ()
         }
     }
@@ -176,22 +181,46 @@ impl Game {
     }
 
     fn pick(&mut self) {
-        if self.left.len() == 0{
+        if self.left.len() == 0 {
             self.draw();
         }
         let tile = self.left.pop().unwrap();
         self.inputs[self.action_id].write(format!("pick {}\n", tile).to_string().as_bytes()).ok();
         self.inputs[self.action_id].flush().ok();
         for i in 0..4 {
-            if i != self.action_id {
-                self.inputs[i].write(format!("mpick {}\n",self.action_id).to_string().as_bytes()).ok();
-                self.inputs[i].flush().ok();
-            }
+            if i == self.action_id { continue; }
+            self
+            .inputs[i].write(format!("mpick {}\n", self.action_id).to_string().as_bytes()).ok();
+            self.inputs[i].flush().ok();
         }
         self.stage = "out".to_string();
     }
 
-    fn draw(&mut self){
+    fn out(&mut self, id: usize, tile: String) {
+        if self.stage != "out" || id != self.action_id {
+            return;
+        }
+        match self.inhand[id].v.iter().position(|x| *x == tile) {
+            Some(index) => {
+                self.inhand[id].v.remove(index);
+                for i in 0..4 {
+                    if i == self.action_id { continue; }
+                    self.inputs[i]
+                        .write(format!("mout {} {}\n", self.action_id, tile)
+                                   .to_string()
+                                   .as_bytes())
+                        .ok();
+                    self.inputs[i].flush().ok();
+                }
+                self.last_time = PreciseTime::now();
+            },
+            None => {
+                //TODO
+            }
+        }
+    }
+
+    fn draw(&mut self) {
         //TODO
     }
 }
