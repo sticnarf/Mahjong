@@ -276,7 +276,7 @@ impl Game {
             };
             o1.cmp(&o2)
         });
-        let mut chi = false;
+        let mut sort = "fail";
         for msg in messages {
             if msg.id == self.action_id { continue; }
             let v: Vec<&str> = msg.message.split('_').collect();
@@ -288,24 +288,53 @@ impl Game {
                 },
                 "gang" => {
                     if self.gang(msg.id, v[1]) {
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mgang {} {}\n", msg.id, v[1])
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "gang";
                         break;
                     }
                 },
                 "peng" => {
                     if self.peng(msg.id, v[1]) {
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mpeng {} {}\n", msg.id, v[1])
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "peng";
                         break;
                     }
                 },
                 "chi" => {
                     if self.chi(msg.id, v[1]) {
-                        chi = true;
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mchi {} {}\n", msg.id, v[1])
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "chi";
                         break;
                     }
                 },
                 _ => ()
             }
         }
-        if !chi {
+        if sort != "chi" {
             let post = post_pos(self.action_id);
             match self.messages.get(&post) {
                 Some(msg) => {
@@ -316,6 +345,14 @@ impl Game {
                 },
                 None => ()
             }
+        }
+        if sort == "gang" {
+            self.pick();
+        } else if sort == "fail" {
+            self.action_id = post_pos(self.action_id);
+            self.pick();
+        } else {
+            self.stage = "out".to_string();
         }
     }
 
@@ -357,7 +394,7 @@ impl Game {
             None => return false
         });
         set.remove(&self.last_tile);
-        if self.tiles[id].hands.iter().filter(|&x| set.contains(x)).count() >= 2{
+        if self.tiles[id].hands.iter().filter(|&x| set.contains(x)).count() >= 2 {
             for i in set {
                 let index = self.tiles[id].hands.iter().position(|x| *x == i).unwrap();
                 self.tiles[id].hands.remove(index);
