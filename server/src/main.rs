@@ -325,17 +325,45 @@ impl Game {
     }
 
     fn gang(&mut self, id: usize, tile: &str) -> bool {
-        //TODO
+        if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 3 {
+            self.tiles[id].hands.retain(|x| x != tile);
+            self.tiles[id].kongs.push(tile.to_string());
+            return true;
+        }
         return false;
     }
 
     fn peng(&mut self, id: usize, tile: &str) -> bool {
-        //TODO
+        if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() >= 2 {
+            for _ in 0..2 {
+                let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
+                self.tiles[id].hands.remove(index);
+            }
+            return true;
+        }
         return false;
     }
 
     fn chi(&mut self, id: usize, tile: &str) -> bool {
-        //TODO
+        let mut set = HashSet::new();
+        set.insert(tile.to_string());
+        let second = match post(tile.to_string()) {
+            Some(x) => x,
+            None => return false
+        };
+        set.insert(second.clone());
+        set.insert(match post(second) {
+            Some(x) => x,
+            None => return false
+        });
+        set.remove(&self.last_tile);
+        if self.tiles[id].hands.iter().filter(|&x| set.contains(x)).count() >= 2{
+            for i in set {
+                let index = self.tiles[id].hands.iter().position(|x| *x == i).unwrap();
+                self.tiles[id].hands.remove(index);
+            }
+            return true;
+        }
         return false;
     }
 
