@@ -135,6 +135,7 @@ impl Game {
                               .stdout(Stdio::piped())
                               .spawn()
                               .unwrap();
+            let id = command.id();
             self.inputs.push(command.stdin.unwrap());
             let tx = tx.clone();
             let mut output = BufReader::new(command.stdout.unwrap());
@@ -147,6 +148,14 @@ impl Game {
                         tx.send(Message { id: i, message: result }).ok();
                     }
                     println!("$ AI{} shut", i);
+                    match std::env::consts::OS {
+                        "windows" => {
+                            Command::new("taskkill").arg("/PID").arg(id.to_string()).output().ok();
+                        }, 
+                        _ => {
+                            Command::new("kill").arg(id.to_string()).output().ok();
+                        }
+                    }
                 }
             });
         }
