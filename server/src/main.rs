@@ -20,7 +20,7 @@ fn main() {
         process::exit(1);
     }
     let mut board: HashMap<String, i64> = HashMap::new();
-    for i in 0..4 {
+    for i in 1..5 {
         board.insert(args[i].to_string(), 0);
     }
     println!("$ Game start!");
@@ -48,7 +48,8 @@ fn main() {
             let _board = board.clone();
             for i in 0..4 {
                 let score = _board.get(&args[position[i]].to_string()).unwrap();
-                board.insert(args[position[i]].to_string(), score + game.score[i]);
+                let add = game.score[i];
+                board.insert(args[position[i]].to_string(), score + add);
             }
         }
     }
@@ -137,7 +138,6 @@ impl Game {
             self.inputs.push(command.stdin.unwrap());
             let tx = tx.clone();
             let mut output = BufReader::new(command.stdout.unwrap());
-            // let mut err = BufReader::new(command.stderr.unwrap());
             thread::spawn(move || {
                 unsafe {
                     println!("$ AI{} started", i);
@@ -145,67 +145,61 @@ impl Game {
                         let mut result = String::new();
                         output.read_line(&mut result).ok();
                         tx.send(Message { id: i, message: result }).ok();
-                        thread::sleep_ms(10);
                     }
                     println!("$ AI{} shut", i);
                 }
             });
-            // thread::spawn(move || {
-            //     unsafe {
-            //         while flags[i] {
-            //             let mut result = String::new();
-            //             err.read_line(&mut result).ok();
-            //             if result.len() > 0 {
-            //                 println!("{}'s err:{}", i, result.trim());
-            //             }
-            //             thread::sleep_ms(10);
-            //         }
-            //     }
-            // });
         }
         loop {
-            let msg = match rx.recv() {
-                Ok(msg) => msg,
-                Err(_) => return
-            };
-            self.process(msg);
+            unsafe {
+                if flags == [false, false, false, false] {
+                    return;
+                }
+            }
+            if self.stage == "outwait" {
+                if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                    let msg = match rx.try_recv() {
+                        Ok(msg) => msg,
+                        _ => {
+                            thread::sleep_ms(10);
+                            continue;
+                        }
+                    };
+                    println!("$ Received message: {:?}", msg);
+                    self.messages.insert(msg.id, msg);
+                    println!("$ Added to queue!");
+                } else {
+                    self.outwait();
+                }
+            } else if self.stage == "qgwait" {
+                if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                    let msg = match rx.try_recv() {
+                        Ok(msg) => msg,
+                        _ => {
+                            thread::sleep_ms(10);
+                            continue;
+                        }
+                    };
+                    println!("$ Received message: {:?}", msg);
+                    self.messages.insert(msg.id, msg);
+                    println!("$ Added to queue!");
+                } else {
+                    self.qgwait();
+                }
+            } else {
+                let msg = match rx.recv() {
+                    Ok(msg) => msg,
+                    Err(_) => return
+                };
+                self.process(msg);
+            }
         }
     }
 
     fn process(&mut self, msg: Message) {
-        let valid = msg.message.len() > 0;
-        if valid {
-            println!("$ Received message: {:?}", msg);
-        }
-        // BUG: 如果某AI在此时疯狂发指令，会导致后发指令的其它AI的指令超时而舍弃
-        if self.stage == "outwait" {
-            if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                if valid {
-                    self.messages.insert(msg.id, msg);
-                    println!("$ Added to queue!");
-                }
-                return;
-            } else {
-                self.outwait();
-                return;
-            }
-        }
-        if self.stage == "qgwait" {
-            if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                if valid {
-                    self.messages.insert(msg.id, msg);
-                    println!("$ Added to queue!");
-                }
-                return;
-            } else {
-                self.qgwait();
-                return;
-            }
-        }
-        if !valid {
-            return;
-        }
-        let v: Vec<&str> = msg.message.split('_').collect();
+        println!("$ Received message: {:?}", msg);
+        let v: Vec<&str> = msg.message.split(' ').collect();
+        println!("$ vector = {:?}", v);
         match v[0].trim() {
             "join" => self.join(msg.id),
             "out" => self.out(msg.id, v[1].trim().to_string()),
@@ -222,7 +216,7 @@ impl Game {
             return;
         }
         let time = PreciseTime::now();
-        match cal_fan(self.tiles[id].clone()) {
+        match cal_fan(self.tiles[id].clone(), self.last_tile.clone(), true) {
             Some(x) => {
                 let duration = self.last_time.to(time).num_milliseconds();
                 if duration >= 1050 {
@@ -234,6 +228,12 @@ impl Game {
                 for i in 0..4 {
                     if i != id {
                         self.score[i] -= x + self.base;
+                    }
+                }
+                println!("$ {} tsumo!", id);
+                unsafe {
+                    for i in 0..4 {
+                        flags[i] = false;
                     }
                 }
             },
@@ -271,14 +271,14 @@ impl Game {
             messages.push(_msg.clone());
         }
         messages.sort_by(|a, b| {
-            let o1 = match a.message.split('_').next().unwrap() {
+            let o1 = match a.message.split(' ').next().unwrap() {
                 "hu" => (a.id + 4 - self.action_id) % 4,
                 "gang" => 16,
                 "peng" => 64,
                 "chi" => 254,
                 _ => 255
             };
-            let o2 = match b.message.split('_').next().unwrap() {
+            let o2 = match b.message.split(' ').next().unwrap() {
                 "hu" => (b.id + 4 - self.action_id) % 4,
                 "gang" => 16,
                 "peng" => 64,
@@ -290,23 +290,29 @@ impl Game {
         let mut sort = "fail";
         for msg in messages {
             if msg.id == self.action_id { continue; }
-            let v: Vec<&str> = msg.message.split('_').collect();
+            let v: Vec<&str> = msg.message.split(' ').collect();
             match v[0].trim() {
                 "hu" => {
                     if self.hu(msg.id) {
+                        println!("{} hu!", msg.id);
+                        unsafe {
+                            for i in 0..4 {
+                                flags[i] = false;
+                            }
+                        }
                         return;
                     }
                 },
                 "gang" => {
-                    if self.gang(msg.id, v[1].trim()) {
+                    if self.gang(msg.id) {
                         for i in 0..4 {
                             self.inputs[i]
-                                .write(format!("mgang {} {}\n", msg.id, v[1].trim())
+                                .write(format!("mgang {} {}\n", msg.id, self.last_tile.clone())
                                            .to_string()
                                            .as_bytes())
                                 .ok();
                             print!("Sent to {}: {}", i,
-                                     format!("mgang {} {}\n", msg.id, v[1].trim()));
+                                   format!("mgang {} {}\n", msg.id, self.last_tile.clone()));
 
                             self.inputs[i].flush().ok();
                         }
@@ -316,15 +322,15 @@ impl Game {
                     }
                 },
                 "peng" => {
-                    if self.peng(msg.id, v[1].trim()) {
+                    if self.peng(msg.id) {
                         for i in 0..4 {
                             self.inputs[i]
-                                .write(format!("mpeng {} {}\n", msg.id, v[1].trim())
+                                .write(format!("mpeng {} {}\n", msg.id, self.last_tile.clone())
                                            .to_string()
                                            .as_bytes())
                                 .ok();
                             print!("Sent to {}: {}", i,
-                                     format!("mpeng {} {}\n", msg.id, v[1].trim()));
+                                   format!("mpeng {} {}\n", msg.id, self.last_tile.clone()));
 
                             self.inputs[i].flush().ok();
                         }
@@ -342,7 +348,7 @@ impl Game {
                                            .as_bytes())
                                 .ok();
                             print!("Sent to {}: {}", i,
-                                     format!("mchi {} {}\n", msg.id, v[1].trim()));
+                                   format!("mchi {} {}\n", msg.id, v[1].trim()));
 
                             self.inputs[i].flush().ok();
                         }
@@ -358,7 +364,7 @@ impl Game {
             let post = post_pos(self.action_id);
             match self.messages.get(&post) {
                 Some(msg) => {
-                    if msg.message.split('_').next().unwrap() == "chi" {
+                    if msg.message.split(' ').next().unwrap() == "chi" {
                         println!("$ {} failed to chi", post);
                         self.inputs[post].write("mfail\n".to_string().as_bytes()).ok();
                         print!("Sent to {}: mfail\n", post);
@@ -551,29 +557,43 @@ impl Game {
     }
 
     fn hu(&mut self, id: usize) -> bool {
-
-        //TODO
+        match cal_fan(self.tiles[id].clone(), self.last_tile.clone(), false) {
+            Some(x) => {
+                self.score[id] += 3 * self.base + x;
+                for i in 0..4 {
+                    if i != id {
+                        self.score[i] -= self.base;
+                    }
+                }
+                self.score[self.action_id] -= x;
+                return true;
+            },
+            None => ()
+        }
         return false;
     }
 
-    fn gang(&mut self, id: usize, tile: &str) -> bool {
+    fn gang(&mut self, id: usize) -> bool {
+        let tile = self.last_tile.clone();
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 3 {
-            self.tiles[id].hands.retain(|x| x != tile);
-            self.tiles[id].kongs.push(tile.to_string());
+            self.tiles[id].hands.retain(|x| x != &tile);
             println!("$ {} gang {}", id, tile);
+            self.tiles[id].kongs.push(tile);
             return true;
         }
         println!("$ {} sent invalid gang", id);
         return false;
     }
 
-    fn peng(&mut self, id: usize, tile: &str) -> bool {
+    fn peng(&mut self, id: usize) -> bool {
+        let tile = self.last_tile.clone();
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() >= 2 {
             for _ in 0..2 {
                 let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
                 self.tiles[id].hands.remove(index);
             }
             println!("$ {} peng {}", id, tile);
+            self.tiles[id].pungs.push(tile);
             return true;
         }
         println!("$ {} sent invalid peng", id);
@@ -646,7 +666,7 @@ fn post_pos(pos: usize) -> usize {
     return (pos + 1) % 4;
 }
 
-fn cal_fan(tiles: Tiles) -> Option<i64> {
+fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
     //TODO
-    return None;
+    return Some(1);
 }
