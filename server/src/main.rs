@@ -20,9 +20,9 @@ fn main() {
         println!("Usage: ./server <AI1> <AI2> <AI3> <AI4>");
         process::exit(1);
     }
-    let mut board: HashMap<&str, i32> = HashMap::new();
+    let mut board: HashMap<String, i64> = HashMap::new();
     for i in 0..4 {
-        board.insert(&args[i], 0);
+        board.insert(args[i].to_string(), 0);
     }
     let positions = vec![
         [[1, 2, 3, 4], [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]],
@@ -42,8 +42,14 @@ fn main() {
             ];
             let mut game = Game::new(paths, rng);
             game.run();
+            let _board = board.clone();
+            for i in 0..4 {
+                let score = _board.get(&args[position[i]].to_string()).unwrap();
+                board.insert(args[position[i]].to_string(), score + game.score[i]);
+            }
         }
     }
+    println!("{:?}", board);
 }
 
 fn gen_seed() -> [usize; 8] {
@@ -54,6 +60,7 @@ fn gen_seed() -> [usize; 8] {
     seed
 }
 
+#[derive(Clone)]
 struct Tiles {
     hands: Vec<String>,
     chows: Vec<String>,
@@ -74,8 +81,11 @@ struct Game {
     last_time: PreciseTime,
     last_tile: String,
     score: [i64; 4],
-    messages: HashMap<usize, Message>
+    messages: HashMap<usize, Message>,
+    base: i64,
 }
+
+static mut flags: [bool; 4] = [true, true, true, true];
 
 impl Game {
     fn new(paths: [String; 4], rng: StdRng) -> Game {
@@ -93,6 +103,9 @@ impl Game {
         ];
         let mut left: Vec<_> = tiles.iter().map(|x| x.to_string()).collect();
         rng.clone().shuffle(&mut left);
+        unsafe {
+            flags = [true, true, true, true];
+        }
         Game {
             rng: rng,
             paths: paths,
@@ -105,7 +118,8 @@ impl Game {
             last_time: PreciseTime::now(),
             score: [0; 4],
             last_tile: String::new(),
-            messages: HashMap::new()
+            messages: HashMap::new(),
+            base: 4
         }
     }
 
@@ -121,21 +135,26 @@ impl Game {
             let tx = tx.clone();
             let mut output = BufReader::new(command.stdout.unwrap());
             thread::spawn(move || {
-                loop {
-                    let mut result = String::new();
-                    let size = output.read_line(&mut result).ok().unwrap();
-                    if size > 0 {
-                        tx.send(Message {
-                            id: i,
-                            message: result
-                        }).ok();
+                unsafe {
+                    while flags[i] {
+                        let mut result = String::new();
+                        let size = output.read_line(&mut result).ok().unwrap();
+                        if size > 0 {
+                            tx.send(Message {
+                                id: i,
+                                message: result
+                            }).ok();
+                        }
+                        thread::sleep_ms(10);
                     }
-                    thread::sleep_ms(10);
                 }
             });
         }
         loop {
-            let msg = rx.recv().ok().unwrap();
+            let msg = match rx.recv() {
+                Ok(msg) => msg,
+                Err(_) => return
+            };
             self.process(msg);
         }
     }
@@ -151,11 +170,215 @@ impl Game {
                 return;
             }
         }
+        if self.stage == "qgwait" {
+            if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                self.messages.insert(msg.id, msg);
+                return;
+            } else {
+                self.qgwait();
+                return;
+            }
+        }
         let v: Vec<&str> = msg.message.split('_').collect();
-        match v[0] {
+        match v[0].trim() {
             "join" => self.join(msg.id),
-            "out" => self.out(msg.id, v[1].to_string()),
+            "out" => self.out(msg.id, v[1].trim().to_string()),
+            "agang" => self.agang(msg.id, v[1].trim().to_string()),
+            "jgang" => self.jgang(msg.id, v[1].trim().to_string()),
+            "hu" => self.tsumo(msg.id),
             _ => ()
+        }
+    }
+
+    fn tsumo(&mut self, id: usize) {
+        if self.stage != "out" || id != self.action_id {
+            return;
+        }
+        let time = PreciseTime::now();
+        match cal_fan(self.tiles[id].clone()) {
+            Some(x) => {
+                let duration = self.last_time.to(time).num_milliseconds();
+                if duration >= 1050 {
+                    self.score[id] -= (duration - 950) / 100;
+                }
+                self.score[id] += 3 * (x + self.base);
+                for i in 0..4 {
+                    if i != id {
+                        self.score[i] -= x + self.base;
+                    }
+                }
+            },
+            None => {
+                //TODO
+            }
+        }
+    }
+
+    fn qgwait(&mut self) {
+        let mut messages = Vec::new();
+        for _msg in self.messages.values() {
+            messages.push(_msg.clone());
+        }
+        messages.sort_by(|a, b| ((a.id + 4 - self.action_id) % 4)
+                                    .cmp(&((b.id + 4 - self.action_id) % 4)));
+        for msg in messages {
+            if msg.id == self.action_id { continue; }
+            match msg.message.trim() {
+                "qgang" => {
+                    if self.hu(msg.id) {
+                        return;
+                    }
+                },
+                _ => ()
+            }
+        }
+        self.pick();
+    }
+
+    fn outwait(&mut self) {
+        let mut messages = Vec::new();
+        for _msg in self.messages.values() {
+            messages.push(_msg.clone());
+        }
+        messages.sort_by(|a, b| {
+            let o1 = match a.message.split('_').next().unwrap() {
+                "hu" => (a.id + 4 - self.action_id) % 4,
+                "gang" => 16,
+                "peng" => 64,
+                "chi" => 254,
+                _ => 255
+            };
+            let o2 = match b.message.split('_').next().unwrap() {
+                "hu" => (b.id + 4 - self.action_id) % 4,
+                "gang" => 16,
+                "peng" => 64,
+                "chi" => 254,
+                _ => 255
+            };
+            o1.cmp(&o2)
+        });
+        let mut sort = "fail";
+        for msg in messages {
+            if msg.id == self.action_id { continue; }
+            let v: Vec<&str> = msg.message.split('_').collect();
+            match v[0].trim() {
+                "hu" => {
+                    if self.hu(msg.id) {
+                        return;
+                    }
+                },
+                "gang" => {
+                    if self.gang(msg.id, v[1].trim()) {
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mgang {} {}\n", msg.id, v[1].trim())
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "gang";
+                        break;
+                    }
+                },
+                "peng" => {
+                    if self.peng(msg.id, v[1].trim()) {
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mpeng {} {}\n", msg.id, v[1].trim())
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "peng";
+                        break;
+                    }
+                },
+                "chi" => {
+                    if self.chi(msg.id, v[1].trim()) {
+                        for i in 0..4 {
+                            self.inputs[i]
+                                .write(format!("mchi {} {}\n", msg.id, v[1].trim())
+                                           .to_string()
+                                           .as_bytes())
+                                .ok();
+                            self.inputs[i].flush().ok();
+                        }
+                        self.action_id = msg.id;
+                        sort = "chi";
+                        break;
+                    }
+                },
+                _ => ()
+            }
+        }
+        if sort != "chi" {
+            let post = post_pos(self.action_id);
+            match self.messages.get(&post) {
+                Some(msg) => {
+                    if msg.message.split('_').next().unwrap() == "chi" {
+                        self.inputs[post].write("mfail\n".to_string().as_bytes()).ok();
+                        self.inputs[post].flush().ok();
+                    }
+                },
+                None => ()
+            }
+        }
+        if sort == "gang" {
+            self.pick();
+        } else if sort == "fail" {
+            self.action_id = post_pos(self.action_id);
+            self.pick();
+        } else {
+            self.stage = "out".to_string();
+        }
+    }
+
+    fn agang(&mut self, id: usize, tile: String) {
+        if self.stage != "out" || id != self.action_id {
+            return;
+        }
+        if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 4 {
+            let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
+            if duration >= 1050 {
+                self.score[id] -= (duration - 950) / 100;
+            }
+            self.tiles[id].hands.retain(|x| x != &tile);
+            self.tiles[id].ckongs.push(tile.to_string());
+            for i in 0..4 {
+                self.inputs[i].write(format!("magang {}\n", id).to_string().as_bytes()).ok();
+                self.inputs[i].flush().ok();
+            }
+            self.pick();
+        }
+    }
+
+    fn jgang(&mut self, id: usize, tile: String) {
+        if self.stage != "out" || id != self.action_id {
+            return;
+        }
+        if self.tiles[id].hands.contains(&tile) && self.tiles[id].pungs.contains(&tile) {
+            let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
+            if duration >= 1050 {
+                self.score[id] -= (duration - 950) / 100;
+            }
+            let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
+            self.tiles[id].hands.remove(index);
+            let index = self.tiles[id].pungs.iter().position(|x| *x == tile).unwrap();
+            self.tiles[id].pungs.remove(index);
+            self.tiles[id].kongs.push(tile.clone());
+            for i in 0..4 {
+                self
+                .inputs[i].write(format!("mjgang {} {}\n", id, tile).to_string().as_bytes()).ok();
+                self.inputs[i].flush().ok();
+            }
+            self.stage = "qgwait".to_string();
+            self.last_tile = tile;
+            self.messages.clear();
+            self.last_time = PreciseTime::now();
         }
     }
 
@@ -246,6 +469,7 @@ impl Game {
                 }
                 self.last_tile = tile;
                 self.stage = "outwait".to_string();
+                self.messages.clear();
                 self.last_time = PreciseTime::now();
             },
             None => {
@@ -254,109 +478,8 @@ impl Game {
         }
     }
 
-    fn outwait(&mut self) {
-        let mut messages = Vec::new();
-        for _msg in self.messages.values() {
-            messages.push(_msg.clone());
-        }
-        messages.sort_by(|a, b| {
-            let o1 = match a.message.split('_').next().unwrap() {
-                "hu" => (a.id + 4 - self.action_id) % 4,
-                "gang" => 16,
-                "peng" => 64,
-                "chi" => 254,
-                _ => 255
-            };
-            let o2 = match b.message.split('_').next().unwrap() {
-                "hu" => (b.id + 4 - self.action_id) % 4,
-                "gang" => 16,
-                "peng" => 64,
-                "chi" => 254,
-                _ => 255
-            };
-            o1.cmp(&o2)
-        });
-        let mut sort = "fail";
-        for msg in messages {
-            if msg.id == self.action_id { continue; }
-            let v: Vec<&str> = msg.message.split('_').collect();
-            match v[0] {
-                "hu" => {
-                    if self.hu(msg.id) {
-                        return;
-                    }
-                },
-                "gang" => {
-                    if self.gang(msg.id, v[1]) {
-                        for i in 0..4 {
-                            self.inputs[i]
-                                .write(format!("mgang {} {}\n", msg.id, v[1])
-                                           .to_string()
-                                           .as_bytes())
-                                .ok();
-                            self.inputs[i].flush().ok();
-                        }
-                        self.action_id = msg.id;
-                        sort = "gang";
-                        break;
-                    }
-                },
-                "peng" => {
-                    if self.peng(msg.id, v[1]) {
-                        for i in 0..4 {
-                            self.inputs[i]
-                                .write(format!("mpeng {} {}\n", msg.id, v[1])
-                                           .to_string()
-                                           .as_bytes())
-                                .ok();
-                            self.inputs[i].flush().ok();
-                        }
-                        self.action_id = msg.id;
-                        sort = "peng";
-                        break;
-                    }
-                },
-                "chi" => {
-                    if self.chi(msg.id, v[1]) {
-                        for i in 0..4 {
-                            self.inputs[i]
-                                .write(format!("mchi {} {}\n", msg.id, v[1])
-                                           .to_string()
-                                           .as_bytes())
-                                .ok();
-                            self.inputs[i].flush().ok();
-                        }
-                        self.action_id = msg.id;
-                        sort = "chi";
-                        break;
-                    }
-                },
-                _ => ()
-            }
-        }
-        if sort != "chi" {
-            let post = post_pos(self.action_id);
-            match self.messages.get(&post) {
-                Some(msg) => {
-                    if msg.message.split('_').next().unwrap() == "chi" {
-                        self.inputs[post].write("mfail\n".to_string().as_bytes()).ok();
-                        self.inputs[post].flush().ok();
-                    }
-                },
-                None => ()
-            }
-        }
-        if sort == "gang" {
-            self.pick();
-        } else if sort == "fail" {
-            self.action_id = post_pos(self.action_id);
-            self.pick();
-        } else {
-            self.stage = "out".to_string();
-        }
-    }
-
     fn hu(&mut self, id: usize) -> bool {
+
         //TODO
         return false;
     }
@@ -436,4 +559,9 @@ fn post(tile: String) -> Option<String> {
 
 fn post_pos(pos: usize) -> usize {
     return (pos + 1) % 4;
+}
+
+fn cal_fan(tiles: Tiles) -> Option<i64> {
+    //TODO
+    return None;
 }
