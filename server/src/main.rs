@@ -24,6 +24,7 @@ fn main() {
     for i in 0..4 {
         board.insert(args[i].to_string(), 0);
     }
+    println!("Game start!");
     let positions = vec![
         [[1, 2, 3, 4], [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]],
         [[1, 3, 2, 4], [3, 2, 4, 1], [2, 4, 1, 3], [4, 1, 3, 2]],
@@ -34,7 +35,9 @@ fn main() {
     ];
     for group in &positions {
         let seed = gen_seed();
+        println!("Generated new random seeds");
         for position in group {
+            println!("The positions are {:?}", position);
             let rng = StdRng::from_seed(&seed);
             let paths = [
                 args[position[0]].clone(), args[position[1]].clone(), args[position[2]].clone(),
@@ -42,6 +45,7 @@ fn main() {
             ];
             let mut game = Game::new(paths, rng);
             game.run();
+            println!("This hand's score: {:?}", game.score);
             let _board = board.clone();
             for i in 0..4 {
                 let score = _board.get(&args[position[i]].to_string()).unwrap();
@@ -49,7 +53,7 @@ fn main() {
             }
         }
     }
-    println!("{:?}", board);
+    println!("Final score: {:?}", board);
 }
 
 fn gen_seed() -> [usize; 8] {
@@ -136,17 +140,14 @@ impl Game {
             let mut output = BufReader::new(command.stdout.unwrap());
             thread::spawn(move || {
                 unsafe {
+                    println!("AI{} started", i);
                     while flags[i] {
                         let mut result = String::new();
-                        let size = output.read_line(&mut result).ok().unwrap();
-                        if size > 0 {
-                            tx.send(Message {
-                                id: i,
-                                message: result
-                            }).ok();
-                        }
+                        output.read_line(&mut result).ok();
+                        tx.send(Message { id: i, message: result }).ok();
                         thread::sleep_ms(10);
                     }
+                    println!("AI{} shut", i);
                 }
             });
         }
@@ -160,10 +161,17 @@ impl Game {
     }
 
     fn process(&mut self, msg: Message) {
+        let valid = msg.message.len() > 0;
+        if valid {
+            println!("Received message: {:?}", msg);
+        }
         // BUG: 如果某AI在此时疯狂发指令，会导致后发指令的其它AI的指令超时而舍弃
         if self.stage == "outwait" {
             if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                self.messages.insert(msg.id, msg);
+                if valid {
+                    self.messages.insert(msg.id, msg);
+                    println!("Added to queue!");
+                }
                 return;
             } else {
                 self.outwait();
@@ -172,12 +180,18 @@ impl Game {
         }
         if self.stage == "qgwait" {
             if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                self.messages.insert(msg.id, msg);
+                if valid {
+                    self.messages.insert(msg.id, msg);
+                    println!("Added to queue!");
+                }
                 return;
             } else {
                 self.qgwait();
                 return;
             }
+        }
+        if !valid {
+            return;
         }
         let v: Vec<&str> = msg.message.split('_').collect();
         match v[0].trim() {
@@ -192,6 +206,7 @@ impl Game {
 
     fn tsumo(&mut self, id: usize) {
         if self.stage != "out" || id != self.action_id {
+            println!("{} sent invalid hu", id);
             return;
         }
         let time = PreciseTime::now();
@@ -199,7 +214,9 @@ impl Game {
             Some(x) => {
                 let duration = self.last_time.to(time).num_milliseconds();
                 if duration >= 1050 {
-                    self.score[id] -= (duration - 950) / 100;
+                    let penalty = (duration - 950) / 100;
+                    self.score[id] -= penalty;
+                    println!("{} was fined {} due to timeout", id, penalty);
                 }
                 self.score[id] += 3 * (x + self.base);
                 for i in 0..4 {
@@ -226,6 +243,7 @@ impl Game {
             match msg.message.trim() {
                 "qgang" => {
                     if self.hu(msg.id) {
+                        println!("{} robbed the kong", msg.id);
                         return;
                     }
                 },
@@ -320,6 +338,7 @@ impl Game {
             match self.messages.get(&post) {
                 Some(msg) => {
                     if msg.message.split('_').next().unwrap() == "chi" {
+                        println!("{} failed to chi", post);
                         self.inputs[post].write("mfail\n".to_string().as_bytes()).ok();
                         self.inputs[post].flush().ok();
                     }
@@ -339,15 +358,19 @@ impl Game {
 
     fn agang(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
+            println!("{} sent invalid agang", id);
             return;
         }
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 4 {
             let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
             if duration >= 1050 {
-                self.score[id] -= (duration - 950) / 100;
+                let penalty = (duration - 950) / 100;
+                self.score[id] -= penalty;
+                println!("{} was fined {} due to timeout", id, penalty);
             }
             self.tiles[id].hands.retain(|x| x != &tile);
             self.tiles[id].ckongs.push(tile.to_string());
+            println!("{} gang {} concealedly", id, tile);
             for i in 0..4 {
                 self.inputs[i].write(format!("magang {}\n", id).to_string().as_bytes()).ok();
                 self.inputs[i].flush().ok();
@@ -363,13 +386,16 @@ impl Game {
         if self.tiles[id].hands.contains(&tile) && self.tiles[id].pungs.contains(&tile) {
             let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
             if duration >= 1050 {
-                self.score[id] -= (duration - 950) / 100;
+                let penalty = (duration - 950) / 100;
+                self.score[id] -= penalty;
+                println!("{} was fined {} due to timeout", id, penalty);
             }
             let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
             self.tiles[id].hands.remove(index);
             let index = self.tiles[id].pungs.iter().position(|x| *x == tile).unwrap();
             self.tiles[id].pungs.remove(index);
             self.tiles[id].kongs.push(tile.clone());
+            println!("{} gang {} by adding", id, tile);
             for i in 0..4 {
                 self
                 .inputs[i].write(format!("mjgang {} {}\n", id, tile).to_string().as_bytes()).ok();
@@ -378,15 +404,18 @@ impl Game {
             self.stage = "qgwait".to_string();
             self.last_tile = tile;
             self.messages.clear();
+            println!("Waiting for action");
             self.last_time = PreciseTime::now();
         }
     }
 
     fn join(&mut self, id: usize) {
         if self.stage != "join" {
+            println!("{} sent invalid join message", id);
             return;
         }
         self.join_counter.insert(id);
+        println!("{} joined", id);
         if self.join_counter.len() == 4 {
             for i in 0..4 {
                 self.inputs[i].write(format!("id {}\n", i).as_bytes()).ok();
@@ -398,6 +427,7 @@ impl Game {
 
     fn start(&mut self) {
         self.action_id = self.rng.gen_range(0, 4);
+        println!("{} acts first", self.action_id);
         for i in 0..4 {
             self.inputs[i].write(format!("first {}\n", i).as_bytes()).ok();
             self.inputs[i].flush().ok();
@@ -415,12 +445,15 @@ impl Game {
                 kongs: Vec::new(),
                 ckongs: Vec::new()
             });
+            print!("{}'s first 13 tiles are:", i);
             for _ in 0..13 {
                 let tile = self.left.pop().unwrap();
                 output.push_str(" ");
                 output.push_str(&tile);
+                print!("{} ", tile);
                 self.tiles[i].hands.push(tile);
             }
+            println!("");
             output.push_str("\n");
             self.inputs[i].write(output.as_bytes()).ok();
             self.inputs[i].flush().ok();
@@ -433,6 +466,7 @@ impl Game {
             self.draw();
         }
         let tile = self.left.pop().unwrap();
+        println!("{} picked {}", self.action_id, tile);
         self.tiles[self.action_id].hands.push(tile.clone());
         self.inputs[self.action_id].write(format!("pick {}\n", tile).to_string().as_bytes()).ok();
         self.inputs[self.action_id].flush().ok();
@@ -444,18 +478,23 @@ impl Game {
         }
         self.stage = "out".to_string();
         self.last_tile = tile;
+        println!("Waiting for action");
         self.last_time = PreciseTime::now();
     }
 
     fn out(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
+            println!("{} sent invalid out", id);
             return;
         }
         match self.tiles[id].hands.iter().position(|x| *x == tile) {
             Some(index) => {
+                println!("{} discarded {}", id, tile);
                 let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
                 if duration >= 1050 {
-                    self.score[id] -= (duration - 950) / 100;
+                    let penalty = (duration - 950) / 100;
+                    self.score[id] -= penalty;
+                    println!("{} was fined {} due to timeout", id, penalty);
                 }
                 self.tiles[id].hands.remove(index);
                 for i in 0..4 {
@@ -473,6 +512,7 @@ impl Game {
                 self.last_time = PreciseTime::now();
             },
             None => {
+                println!("{} sent invalid out", id);
                 //TODO
             }
         }
@@ -488,8 +528,10 @@ impl Game {
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 3 {
             self.tiles[id].hands.retain(|x| x != tile);
             self.tiles[id].kongs.push(tile.to_string());
+            println!("{} gang {}", id, tile);
             return true;
         }
+        println!("{} sent invalid gang", id);
         return false;
     }
 
@@ -499,12 +541,17 @@ impl Game {
                 let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
                 self.tiles[id].hands.remove(index);
             }
+            println!("{} peng {}", id, tile);
             return true;
         }
+        println!("{} sent invalid peng", id);
         return false;
     }
 
     fn chi(&mut self, id: usize, tile: &str) -> bool {
+        if id != post_pos(self.action_id) {
+            return false;
+        }
         let mut set = HashSet::new();
         set.insert(tile.to_string());
         let second = match post(tile.to_string()) {
@@ -522,17 +569,23 @@ impl Game {
                 let index = self.tiles[id].hands.iter().position(|x| *x == i).unwrap();
                 self.tiles[id].hands.remove(index);
             }
+            println!("{} chi {}", id, tile);
             return true;
         }
         return false;
     }
 
     fn draw(&mut self) {
-        //TODO
+        unsafe {
+            println!("Draw game!");
+            for i in 0..4 {
+                flags[i] = false;
+            }
+        }
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Message {
     id: usize,
     message: String
