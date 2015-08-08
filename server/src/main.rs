@@ -37,7 +37,7 @@ fn main() {
         println!("$ Generated new random seeds");
         for position in group {
             println!("$ The positions are {:?}", position);
-            let rng = StdRng::from_seed(&seed);
+            let rng = StdRng::from_seed(&seed.clone());
             let paths = [
                 args[position[0]].clone(), args[position[1]].clone(), args[position[2]].clone(),
                 args[position[3]].clone()
@@ -50,6 +50,23 @@ fn main() {
                 let score = _board.get(&args[position[i]].to_string()).unwrap();
                 let add = game.score[i];
                 board.insert(args[position[i]].to_string(), score + add);
+                println!("$ AI{} shut", i);
+                let id = game.pids[i];
+                println!("AI{} id={}", i, id);
+                match std::env::consts::OS {
+                    "windows" => {
+                        Command::new("taskkill")
+                            .arg("/PID")
+                            .arg(id.to_string())
+                            .arg("/F")
+                            .arg("/T")
+                            .output()
+                            .ok();
+                    },
+                    _ => {
+                        Command::new("kill").arg(id.to_string()).output().ok();
+                    }
+                }
             }
         }
     }
@@ -87,6 +104,7 @@ struct Game {
     score: [i64; 4],
     messages: HashMap<usize, Message>,
     base: i64,
+    pids: [u32; 4]
 }
 
 static mut flags: [bool; 4] = [true, true, true, true];
@@ -123,7 +141,8 @@ impl Game {
             score: [0; 4],
             last_tile: String::new(),
             messages: HashMap::new(),
-            base: 4
+            base: 4,
+            pids: [0, 0, 0, 0]
         }
     }
 
@@ -136,6 +155,7 @@ impl Game {
                               .spawn()
                               .unwrap();
             let id = command.id();
+            self.pids[i] = id;
             self.inputs.push(command.stdin.unwrap());
             let tx = tx.clone();
             let mut output = BufReader::new(command.stdout.unwrap());
@@ -147,15 +167,7 @@ impl Game {
                         output.read_line(&mut result).ok();
                         tx.send(Message { id: i, message: result }).ok();
                     }
-                    println!("$ AI{} shut", i);
-                    match std::env::consts::OS {
-                        "windows" => {
-                            Command::new("taskkill").arg("/PID").arg(id.to_string()).output().ok();
-                        }, 
-                        _ => {
-                            Command::new("kill").arg(id.to_string()).output().ok();
-                        }
-                    }
+
                 }
             });
         }
