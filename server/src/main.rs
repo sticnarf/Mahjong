@@ -36,6 +36,7 @@ fn main() {
         let seed = gen_seed();
         println!("$ Generated new random seeds");
         for position in group {
+        // let seed = gen_seed();
             println!("$ The positions are {:?}", position);
             let rng = StdRng::from_seed(&seed.clone());
             let paths = [
@@ -313,6 +314,7 @@ impl Game {
             o1.cmp(&o2)
         });
         let mut sort = "fail";
+        let prev_id = self.action_id;
         for msg in messages {
             if msg.id == self.action_id { continue; }
             let v: Vec<&str> = msg.message.split(' ').collect();
@@ -386,7 +388,7 @@ impl Game {
             }
         }
         if sort != "chi" {
-            let post = post_pos(self.action_id);
+            let post = post_pos(prev_id);
             match self.messages.get(&post) {
                 Some(msg) => {
                     if msg.message.split(' ').next().unwrap() == "chi" {
@@ -778,13 +780,15 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
 fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
     //TODO
     let mut _tiles = tiles.clone();
-
     if !tsumo{
         _tiles.hands.push(add.clone());
     }
     let combs = combine(_tiles);
     if combs.len() == 0 {
         return None;
+    }
+    for comb in combs {
+
     }
     return Some(1);
 }
