@@ -87,7 +87,9 @@ struct Tiles {
     chows: Vec<String>,
     pungs: Vec<String>,
     kongs: Vec<String>,
-    ckongs: Vec<String>
+    ckongs: Vec<String>,
+    cchows: Vec<String>,
+    cpungs: Vec<String>
 }
 
 struct Game {
@@ -165,7 +167,7 @@ impl Game {
                     while flags[i] {
                         let mut result = String::new();
                         output.read_line(&mut result).ok();
-                        tx.send(Message { id: i, message: result }).ok();
+                        tx.send(Message { id: i, message: result.trim().to_string() }).ok();
                     }
 
                 }
@@ -182,7 +184,7 @@ impl Game {
                     let msg = match rx.try_recv() {
                         Ok(msg) => msg,
                         _ => {
-                            thread::sleep_ms(10);
+                            thread::sleep_ms(25);
                             continue;
                         }
                     };
@@ -197,7 +199,7 @@ impl Game {
                     let msg = match rx.try_recv() {
                         Ok(msg) => msg,
                         _ => {
-                            thread::sleep_ms(10);
+                            thread::sleep_ms(25);
                             continue;
                         }
                     };
@@ -260,6 +262,8 @@ impl Game {
             },
             None => {
                 //TODO
+                println!("$ {} sent invalid hu", id);
+                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
             }
         }
     }
@@ -427,6 +431,9 @@ impl Game {
                 self.inputs[i].flush().ok();
             }
             self.pick();
+        }else{
+            println!("$ {} sent invalid agang", id);
+            println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
         }
     }
 
@@ -497,7 +504,9 @@ impl Game {
                 chows: Vec::new(),
                 pungs: Vec::new(),
                 kongs: Vec::new(),
-                ckongs: Vec::new()
+                ckongs: Vec::new(),
+                cchows: Vec::new(),
+                cpungs: Vec::new()
             });
             print!("$ {}'s first 13 tiles are:", i);
             for _ in 0..13 {
@@ -519,6 +528,7 @@ impl Game {
     fn pick(&mut self) {
         if self.left.len() == 0 {
             self.draw();
+            return;
         }
         let tile = self.left.pop().unwrap();
         println!("$ {} picked {}", self.action_id, tile);
@@ -572,6 +582,7 @@ impl Game {
             },
             None => {
                 println!("$ {} sent invalid out", id);
+                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
                 //TODO
             }
         }
@@ -589,7 +600,10 @@ impl Game {
                 self.score[self.action_id] -= x;
                 return true;
             },
-            None => ()
+            None => {
+                println!("$ {} sent invalid hu", id);
+                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+            }
         }
         return false;
     }
@@ -667,16 +681,16 @@ struct Message {
 fn post(tile: String) -> Option<String> {
     let chars: Vec<char> = tile.chars().collect();
     if tile.len() == 2 {
-        let kind = chars[0];
+        let kind = chars[1];
         if kind == 'M' || kind == 'T' || kind == 'S' {
-            let num = match chars[1].to_digit(10) {
+            let num = match chars[0].to_digit(10) {
                 Some(x) => x,
                 None => {
                     return None;
                 }
             };
             if num < 9 && num > 0 {
-                return Some(format!("{}{}", kind, num + 1));
+                return Some(format!("{}{}", num + 1, kind));
             }
         }
     }
@@ -687,7 +701,90 @@ fn post_pos(pos: usize) -> usize {
     return (pos + 1) % 4;
 }
 
+fn combine(_tiles: Tiles) -> Vec<Tiles> {
+    let mut v = Vec::new();
+    if _tiles.hands.len() == 2 {
+        if _tiles.hands[0] == _tiles.hands[1] {
+            v.push(_tiles);
+            return v;
+        }
+    }
+    let mut tiles = _tiles.clone();
+    tiles.hands.sort_by(|a, b| {
+        if a.len() == 1 || b.len() == 1 {
+            a.cmp(b)
+        } else {
+            let _a = a.chars().last().unwrap();
+            let _b = b.chars().last().unwrap();
+            if _a == _b {
+                a.cmp(b)
+            } else {
+                _a.cmp(&_b)
+            }
+        }
+    });
+    let mut last_tile = String::new();
+    for t in tiles.hands.clone() {
+        if t == last_tile {
+            continue;
+        }
+        let mut _tiles = tiles.clone();
+        last_tile = t.clone();
+        match post(t.clone()) {
+            Some(t2) => {
+                match post(t2.clone()) {
+                    Some(t3) => {
+                        match _tiles.hands.iter().position(|x| *x == t) {
+                            Some(index) => {
+                                _tiles.hands.remove(index);
+                                match _tiles.hands.iter().position(|x| *x == t2) {
+                                    Some(index) => {
+                                        _tiles.hands.remove(index);
+                                        match _tiles.hands.iter().position(|x| *x == t3) {
+                                            Some(index) => {
+                                                _tiles.hands.remove(index);
+                                                for x in combine(_tiles) {
+                                                    v.push(x);
+                                                }
+                                            },
+                                            _ => ()
+                                        }
+                                    },
+                                    _ => ()
+                                }
+                            },
+                            _ => ()
+                        }
+                    },
+                    _ => ()
+                }
+            },
+            _ => ()
+        }
+        let mut _tiles = tiles.clone();
+        if _tiles.hands.iter().filter(|&x| *x == t.clone()).count() >= 3 {
+            for _ in 0..3 {
+                let index = tiles.hands.iter().position(|x| *x == t.clone()).unwrap();
+                _tiles.hands.remove(index);
+            }
+            for x in combine(_tiles) {
+                v.push(x);
+            }
+        }
+    }
+    return v;
+}
+
 fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
     //TODO
+    let mut _tiles = tiles.clone();
+
+    if !tsumo{
+        _tiles.hands.push(add.clone());
+    }
+    let combs = combine(_tiles);
+    if combs.len() == 0 {
+        return None;
+    }
     return Some(1);
 }
