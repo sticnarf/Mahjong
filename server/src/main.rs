@@ -728,6 +728,45 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
             }
         }
     });
+    if _tiles.hands.len() == 14 {
+        let mut tile_count = HashMap::new();
+        for tile in _tiles.clone().hands {
+            if tile_count.contains_key(&tile) {
+                let _tile_count = tile_count.clone();
+                let count = _tile_count.get(&tile).unwrap();
+                tile_count.insert(tile, count + 1);
+            } else {
+                tile_count.insert(tile, 1);
+            }
+        }
+        //七对
+        {
+            if tile_count.values().filter(|&x| x % 2 != 0).count() == 0 {
+                v.push(_tiles.clone());
+            }
+        }
+        //十三幺
+        {
+            let mut yao = HashSet::new();
+            yao.insert("1M".to_string());
+            yao.insert("1S".to_string());
+            yao.insert("1T".to_string());
+            yao.insert("9M".to_string());
+            yao.insert("9S".to_string());
+            yao.insert("9T".to_string());
+            yao.insert("E".to_string());
+            yao.insert("S".to_string());
+            yao.insert("W".to_string());
+            yao.insert("N".to_string());
+            yao.insert("Z".to_string());
+            yao.insert("F".to_string());
+            yao.insert("B".to_string());
+            if _tiles.hands.iter().filter(|&x| !yao.contains(x)).count() == 0 &&
+               tile_count.values().filter(|&x| *x > 1).count() == 1 {
+                v.push(_tiles.clone());
+            }
+        }
+    }
     let mut last_tile = String::new();
     for t in tiles.hands.clone() {
         if t == last_tile {
@@ -783,22 +822,49 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
 }
 
 fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
-    //TODO 特殊番种没有处理
     let mut _tiles = tiles.clone();
     if !tsumo {
         _tiles.hands.push(add.clone());
     }
-    let combs = combine(_tiles);
+    let combs = combine(_tiles.clone());
     if combs.len() == 0 {
         return None;
     }
     let mut fans = HashSet::new();
     let mut result = -1;
     for comb in combs {
-        let (_fans, _result) = _cal_fan(comb, add.clone(), tsumo);
+        let (_fans, _result) = _cal_fan(comb, tsumo);
         if _result > result {
             fans = _fans;
             result = _result;
+        }
+    }
+    // 单调将
+    {
+        if !fans.contains("十三幺") && !fans.contains("七对") {
+            let mut tiles = _tiles.clone();
+            let _tiles = vec![
+                "1M", "2M", "3M", "4M", "5M", "6M", "7M", "8M", "9M", "1S", "2S", "3S", "4S", "5S",
+                "6S", "7S", "8S", "9S", "1T", "2T", "3T", "4T", "5T", "6T", "7T", "8T", "9T", "E",
+                "S", "W", "N", "Z", "F", "B"
+            ];
+            let index = tiles.hands.iter().position(|x| *x == add).unwrap();
+            tiles.hands.remove(index);
+            let mut flag = true;
+            for tile in _tiles {
+                if tile == add {
+                    continue;
+                }
+                let tiles = tiles.clone();
+                if combine(tiles).len() > 0 {
+                    flag = false;
+                    break;
+                }
+            }
+            if flag {
+                result += 1;
+                fans.insert("单调将".to_string());
+            }
         }
     }
     println!("Tiles are: {:?}", tiles);
@@ -811,7 +877,7 @@ fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
     return Some(result);
 }
 
-fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
+fn _cal_fan(tiles: Tiles, tsumo: bool) -> (HashSet<String>, i64) {
     let mut result: i64 = 0;
     let mut fans = HashSet::new();
     let mut all_tiles = tiles.hands.clone();
@@ -876,6 +942,25 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
     feng.insert("S".to_string());
     feng.insert("W".to_string());
     feng.insert("N".to_string());
+    let mut tile_count = HashMap::new();
+    for tile in tiles.clone().hands {
+        if tile_count.contains_key(&tile) {
+            let _tile_count = tile_count.clone();
+            let count = _tile_count.get(&tile).unwrap();
+            tile_count.insert(tile, count + 1);
+        } else {
+            tile_count.insert(tile, 1);
+        }
+    }
+    //十三幺
+    {
+        if tiles.hands.len() == 14 &&
+           all_tiles.iter().filter(|&x| !yao.contains(x)).count() == 0 &&
+           tile_count.values().filter(|&x| *x > 1).count() == 1 {
+            result += 88;
+            fans.insert("十三幺".to_string());
+        }
+    }
     // 大四喜
     {
         if all_pungs.iter().filter(|&x| feng.contains(x)).count() == 4 {
@@ -956,8 +1041,8 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
         set.insert("9M".to_string());
         set.insert("9S".to_string());
         set.insert("9T".to_string());
-        if all_tiles.iter().filter(|&x| !set.contains(x)).count() == 0 &&
-           tiles.chows.len() == 0 && tiles.cchows.len() == 0 {
+        if all_tiles.iter().filter(|&x| !set.contains(x)).count() == 0 && tiles.chows.len() == 0 &&
+           tiles.cchows.len() == 0 {
             result += 64;
             fans.insert("清幺九".to_string());
         }
@@ -1000,6 +1085,13 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
                 result += 24;
                 fans.insert("清一色".to_string());
             }
+        }
+    }
+    //七对
+    {
+        if tiles.hands.len() == 14 && tile_count.values().filter(|&x| x % 2 != 0).count() == 0 {
+            result += 24;
+            fans.insert("七对".to_string());
         }
     }
     // 一色三同顺
@@ -1050,7 +1142,7 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
     {
         if !fans.contains("大四喜") && !fans.contains("四杠") && !fans.contains("字一色") &&
            !fans.contains("四暗刻") && !fans.contains("清幺九") && !fans.contains("混幺九") {
-            if tiles.chows.len() + tiles.cchows.len() == 0 {
+            if tiles.chows.len() + tiles.cchows.len() == 0 && all_pungs.len() > 0 {
                 result += 6;
                 fans.insert("碰碰和".to_string());
             }
@@ -1070,34 +1162,39 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
     }
     // 五门齐
     {
-        let mut set1 = HashSet::new();
-        let mut set2 = HashSet::new();
-        set1.insert("E".to_string());
-        set1.insert("S".to_string());
-        set1.insert("W".to_string());
-        set1.insert("N".to_string());
-        set2.insert("Z".to_string());
-        set2.insert("F".to_string());
-        set2.insert("B".to_string());
-        if all_tiles.iter()
-                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'M')
-                   .count() != 0 &&
-           all_tiles.iter()
-                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'S')
-                   .count() != 0 &&
-           all_tiles.iter()
-                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'T')
-                   .count() != 0 && all_tiles.iter().filter(|&x| set1.contains(x)).count() != 0 &&
-           all_tiles.iter().filter(|&x| set2.contains(x)).count() != 0 {
-            result += 6;
-            fans.insert("五门齐".to_string());
+        if !fans.contains("十三幺") {
+            let mut set1 = HashSet::new();
+            let mut set2 = HashSet::new();
+            set1.insert("E".to_string());
+            set1.insert("S".to_string());
+            set1.insert("W".to_string());
+            set1.insert("N".to_string());
+            set2.insert("Z".to_string());
+            set2.insert("F".to_string());
+            set2.insert("B".to_string());
+            if all_tiles.iter()
+                       .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'M')
+                       .count() != 0 &&
+               all_tiles.iter()
+                       .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'S')
+                       .count() != 0 &&
+               all_tiles.iter()
+                       .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'T')
+                       .count() != 0 &&
+               all_tiles.iter().filter(|&x| set1.contains(x)).count() != 0 &&
+               all_tiles.iter().filter(|&x| set2.contains(x)).count() != 0 {
+                result += 6;
+                fans.insert("五门齐".to_string());
+            }
         }
     }
     // 门前清
     {
-        if tiles.chows.len() + tiles.pungs.len() + tiles.kongs.len() == 0 {
-            result += 2;
-            fans.insert("门前清".to_string());
+        if !fans.contains("十三幺") && !fans.contains("七对") {
+            if tiles.chows.len() + tiles.pungs.len() + tiles.kongs.len() == 0 {
+                result += 2;
+                fans.insert("门前清".to_string());
+            }
         }
     }
     // 断幺
@@ -1109,7 +1206,8 @@ fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
     }
     // 平和
     {
-        if tiles.pungs.len() + tiles.kongs.len() + tiles.ckongs.len() + tiles.cpungs.len() == 0 {
+        if tiles.pungs.len() + tiles.kongs.len() + tiles.ckongs.len() + tiles.cpungs.len() == 0 &&
+           tiles.chows.len() + tiles.cchows.len() > 0 {
             result += 2;
             fans.insert("平和".to_string());
         }
