@@ -25,47 +25,49 @@ fn main() {
     }
     println!("$ Game start!");
     let positions = vec![
-        [[1, 2, 3, 4], [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]],
-        [[1, 3, 2, 4], [3, 2, 4, 1], [2, 4, 1, 3], [4, 1, 3, 2]],
-        [[1, 3, 4, 2], [3, 4, 2, 1], [4, 2, 1, 3], [2, 1, 3, 4]],
-        [[1, 4, 2, 3], [4, 2, 3, 1], [2, 3, 1, 4], [3, 1, 4, 2]],
-        [[1, 4, 3, 2], [4, 3, 2, 1], [3, 2, 1, 4], [2, 1, 4, 3]],
-        [[1, 2, 4, 3], [2, 4, 3, 1], [4, 3, 1, 2], [3, 1, 2, 4]],
+        [[1, 2, 3, 4]/*, [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]*/],
+        // [[1, 3, 2, 4], [3, 2, 4, 1], [2, 4, 1, 3], [4, 1, 3, 2]],
+        // [[1, 3, 4, 2], [3, 4, 2, 1], [4, 2, 1, 3], [2, 1, 3, 4]],
+        // [[1, 4, 2, 3], [4, 2, 3, 1], [2, 3, 1, 4], [3, 1, 4, 2]],
+        // [[1, 4, 3, 2], [4, 3, 2, 1], [3, 2, 1, 4], [2, 1, 4, 3]],
+        // [[1, 2, 4, 3], [2, 4, 3, 1], [4, 3, 1, 2], [3, 1, 2, 4]],
     ];
     for group in &positions {
         let seed = gen_seed();
         println!("$ Generated new random seeds");
         for position in group {
-        // let seed = gen_seed();
-            println!("$ The positions are {:?}", position);
-            let rng = StdRng::from_seed(&seed.clone());
-            let paths = [
-                args[position[0]].clone(), args[position[1]].clone(), args[position[2]].clone(),
-                args[position[3]].clone()
-            ];
-            let mut game = Game::new(paths, rng);
-            game.run();
-            println!("$ This hand's score: {:?}", game.score);
-            let _board = board.clone();
-            for i in 0..4 {
-                let score = _board.get(&args[position[i]].to_string()).unwrap();
-                let add = game.score[i];
-                board.insert(args[position[i]].to_string(), score + add);
-                println!("$ AI{} shut", i);
-                let id = game.pids[i];
-                println!("AI{} id={}", i, id);
-                match std::env::consts::OS {
-                    "windows" => {
-                        Command::new("taskkill")
-                            .arg("/PID")
-                            .arg(id.to_string())
-                            .arg("/F")
-                            .arg("/T")
-                            .output()
-                            .ok();
-                    },
-                    _ => {
-                        Command::new("kill").arg(id.to_string()).output().ok();
+            for _ in 0..1 {
+                // let seed = gen_seed();
+                println!("$ The positions are {:?}", position);
+                let rng = StdRng::from_seed(&seed.clone());
+                let paths = [
+                    args[position[0]].clone(), args[position[1]].clone(),
+                    args[position[2]].clone(), args[position[3]].clone()
+                ];
+                let mut game = Game::new(paths, rng);
+                game.run();
+                println!("$ This hand's score: {:?}", game.score);
+                let _board = board.clone();
+                for i in 0..4 {
+                    let score = _board.get(&args[position[i]].to_string()).unwrap();
+                    let add = game.score[i];
+                    board.insert(args[position[i]].to_string(), score + add);
+                    println!("$ AI{} shut", i);
+                    let id = game.pids[i];
+                    println!("AI{} id={}", i, id);
+                    match std::env::consts::OS {
+                        "windows" => {
+                            Command::new("taskkill")
+                                .arg("/PID")
+                                .arg(id.to_string())
+                                .arg("/F")
+                                .arg("/T")
+                                .output()
+                                .ok();
+                        },
+                        _ => {
+                            Command::new("kill").arg(id.to_string()).output().ok();
+                        }
                     }
                 }
             }
@@ -82,7 +84,7 @@ fn gen_seed() -> [usize; 8] {
     seed
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Tiles {
     hands: Vec<String>,
     chows: Vec<String>,
@@ -433,7 +435,7 @@ impl Game {
                 self.inputs[i].flush().ok();
             }
             self.pick();
-        }else{
+        } else {
             println!("$ {} sent invalid agang", id);
             println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
         }
@@ -658,6 +660,7 @@ impl Game {
                 let index = self.tiles[id].hands.iter().position(|x| *x == i).unwrap();
                 self.tiles[id].hands.remove(index);
             }
+            self.tiles[id].chows.push(tile.to_string());
             println!("$ {} chi {}", id, tile);
             return true;
         }
@@ -745,6 +748,7 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
                                         match _tiles.hands.iter().position(|x| *x == t3) {
                                             Some(index) => {
                                                 _tiles.hands.remove(index);
+                                                _tiles.cchows.push(t.clone());
                                                 for x in combine(_tiles) {
                                                     v.push(x);
                                                 }
@@ -769,6 +773,7 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
                 let index = tiles.hands.iter().position(|x| *x == t.clone()).unwrap();
                 _tiles.hands.remove(index);
             }
+            _tiles.cpungs.push(t.clone());
             for x in combine(_tiles) {
                 v.push(x);
             }
@@ -778,17 +783,435 @@ fn combine(_tiles: Tiles) -> Vec<Tiles> {
 }
 
 fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
-    //TODO
+    //TODO 特殊番种没有处理
     let mut _tiles = tiles.clone();
-    if !tsumo{
+    if !tsumo {
         _tiles.hands.push(add.clone());
     }
     let combs = combine(_tiles);
     if combs.len() == 0 {
         return None;
     }
+    let mut fans = HashSet::new();
+    let mut result = -1;
     for comb in combs {
-
+        let (_fans, _result) = _cal_fan(comb, add.clone(), tsumo);
+        if _result > result {
+            fans = _fans;
+            result = _result;
+        }
     }
-    return Some(1);
+    println!("Tiles are: {:?}", tiles);
+    print!("Fans are: ");
+    for fan in fans {
+        print!("{} ", fan);
+    }
+    println!("");
+    println!("Altogether {}!", result);
+    return Some(result);
+}
+
+fn _cal_fan(tiles: Tiles, add: String, tsumo: bool) -> (HashSet<String>, i64) {
+    let mut result: i64 = 0;
+    let mut fans = HashSet::new();
+    let mut all_tiles = tiles.hands.clone();
+    for tile in tiles.chows.clone() {
+        all_tiles.push(tile.clone());
+        let next = post(tile).unwrap();
+        all_tiles.push(next.clone());
+        all_tiles.push(post(next).unwrap());
+    }
+    for tile in tiles.pungs.clone() {
+        all_tiles.push(tile);
+    }
+    for tile in tiles.kongs.clone() {
+        all_tiles.push(tile);
+    }
+    for tile in tiles.ckongs.clone() {
+        all_tiles.push(tile);
+    }
+    for tile in tiles.cchows.clone() {
+        all_tiles.push(tile.clone());
+        let next = post(tile).unwrap();
+        all_tiles.push(next.clone());
+        all_tiles.push(post(next).unwrap());
+    }
+    for tile in tiles.cpungs.clone() {
+        all_tiles.push(tile);
+    }
+    let mut all_chows = tiles.chows.clone();
+    for chow in tiles.cchows.clone() {
+        all_chows.push(chow);
+    }
+    let mut yao = HashSet::new();
+    yao.insert("1M".to_string());
+    yao.insert("1S".to_string());
+    yao.insert("1T".to_string());
+    yao.insert("9M".to_string());
+    yao.insert("9S".to_string());
+    yao.insert("9T".to_string());
+    yao.insert("E".to_string());
+    yao.insert("S".to_string());
+    yao.insert("W".to_string());
+    yao.insert("N".to_string());
+    yao.insert("Z".to_string());
+    yao.insert("F".to_string());
+    yao.insert("B".to_string());
+    let mut jian = HashSet::new();
+    jian.insert("Z".to_string());
+    jian.insert("F".to_string());
+    jian.insert("B".to_string());
+    let mut all_pungs = tiles.pungs.clone();
+    for pung in tiles.kongs.clone() {
+        all_pungs.push(pung);
+    }
+    for pung in tiles.ckongs.clone() {
+        all_pungs.push(pung);
+    }
+    for pung in tiles.cpungs.clone() {
+        all_pungs.push(pung);
+    }
+    let mut feng = HashSet::new();
+    feng.insert("E".to_string());
+    feng.insert("S".to_string());
+    feng.insert("W".to_string());
+    feng.insert("N".to_string());
+    // 大四喜
+    {
+        if all_pungs.iter().filter(|&x| feng.contains(x)).count() == 4 {
+            result += 88;
+            fans.insert("大四喜".to_string());
+        }
+    }
+    // 大三元
+    {
+        if all_pungs.iter().filter(|&x| jian.contains(x)).count() == 3 {
+            result += 88;
+            fans.insert("大三元".to_string());
+        }
+    }
+    // 绿一色
+    {
+        let mut set = HashSet::new();
+        set.insert("2S".to_string());
+        set.insert("3S".to_string());
+        set.insert("4S".to_string());
+        set.insert("6S".to_string());
+        set.insert("8S".to_string());
+        set.insert("F".to_string());
+        if all_tiles.iter().filter(|&x| !set.contains(x)).count() == 0 {
+            result += 88;
+            fans.insert("绿一色".to_string());
+        }
+    }
+    // 四杠
+    {
+        if tiles.kongs.len() + tiles.ckongs.len() == 4 {
+            result += 88;
+            fans.insert("四杠".to_string());
+        }
+    }
+    // 小四喜
+    {
+        let mut set = HashSet::new();
+        set.insert("E".to_string());
+        set.insert("S".to_string());
+        set.insert("W".to_string());
+        set.insert("N".to_string());
+        if all_pungs.iter().filter(|&x| set.contains(x)).count() == 3 &&
+           tiles.hands.iter().filter(|&x| set.contains(x)).count() == 2 {
+            result += 64;
+            fans.insert("小四喜".to_string());
+        }
+    }
+    // 小三元
+    {
+
+        if all_pungs.iter().filter(|&x| jian.contains(x)).count() == 2 &&
+           tiles.hands.iter().filter(|&x| jian.contains(x)).count() == 2 {
+            result += 64;
+            fans.insert("小三元".to_string());
+        }
+    }
+    // 字一色
+    {
+        if all_tiles.iter().filter(|&x| x.len() == 2).count() == 0 {
+            result += 64;
+            fans.insert("字一色".to_string());
+        }
+    }
+    // 四暗刻
+    {
+        if tiles.cpungs.len() + tiles.ckongs.len() == 4 {
+            result += 64;
+            fans.insert("四暗刻".to_string());
+        }
+    }
+    // 清幺九
+    {
+        let mut set = HashSet::new();
+        set.insert("1M".to_string());
+        set.insert("1S".to_string());
+        set.insert("1T".to_string());
+        set.insert("9M".to_string());
+        set.insert("9S".to_string());
+        set.insert("9T".to_string());
+        if all_tiles.iter().filter(|&x| !set.contains(x)).count() == 0 &&
+           tiles.chows.len() == 0 && tiles.cchows.len() == 0 {
+            result += 64;
+            fans.insert("清幺九".to_string());
+        }
+    }
+    // 一色四同顺
+    {
+        for chow in all_chows.clone() {
+            if all_chows.iter().filter(|&x| *x == chow).count() == 4 {
+                result += 48;
+                fans.insert("一色四同顺".to_string());
+                break;
+            }
+        }
+    }
+    // 三杠
+    {
+        if tiles.kongs.len() + tiles.ckongs.len() == 3 {
+            result += 32;
+            fans.insert("三杠".to_string());
+        }
+    }
+    // 混幺九
+    {
+        if !fans.contains("清幺九") && !fans.contains("字一色") {
+            if all_tiles.iter().filter(|&x| !yao.contains(x)).count() == 0 &&
+               tiles.chows.len() == 0 && tiles.cchows.len() == 0 {
+                result += 32;
+                fans.insert("混幺九".to_string());
+            }
+        }
+    }
+    // 清一色
+    {
+        let sample: Vec<_> = all_tiles[0].clone().chars().collect();
+        if sample.len() == 2 {
+            let color = sample[1];
+            if all_tiles.iter()
+                   .filter(|&x| x.len() != 2 || x.chars().last().unwrap() != color)
+                   .count() == 0 {
+                result += 24;
+                fans.insert("清一色".to_string());
+            }
+        }
+    }
+    // 一色三同顺
+    {
+        for chow in all_chows.clone() {
+            if all_chows.iter().filter(|&x| *x == chow).count() == 3 {
+                result += 24;
+                fans.insert("一色三同顺".to_string());
+                break;
+            }
+        }
+    }
+    // 三同刻
+    {
+        for pung in all_pungs.clone() {
+            if pung.len() == 1 {
+                continue;
+            }
+            let ord = pung.chars().next().unwrap();
+            if all_pungs.iter().filter(|&x| x.chars().next().unwrap() == ord).count() == 3 {
+                result += 16;
+                fans.insert("三同刻".to_string());
+                break;
+            }
+        }
+    }
+    // 三暗刻
+    {
+        if tiles.cpungs.len() + tiles.ckongs.len() == 3 {
+            result += 16;
+            fans.insert("三暗刻".to_string());
+        }
+    }
+    // 三色三同顺
+    {
+        for chow in all_chows.clone() {
+            let ord = chow.chars().next().unwrap();
+            if all_chows.contains(&format!("{}M", ord)) &&
+               all_chows.contains(&format!("{}S", ord)) &&
+               all_chows.contains(&format!("{}T", ord)) {
+                result += 8;
+                fans.insert("三色三同顺".to_string());
+                break;
+            }
+        }
+    }
+    // 碰碰和
+    {
+        if !fans.contains("大四喜") && !fans.contains("四杠") && !fans.contains("字一色") &&
+           !fans.contains("四暗刻") && !fans.contains("清幺九") && !fans.contains("混幺九") {
+            if tiles.chows.len() + tiles.cchows.len() == 0 {
+                result += 6;
+                fans.insert("碰碰和".to_string());
+            }
+        }
+    }
+    // 混一色
+    {
+        if !fans.contains("字一色") && !fans.contains("清一色") {
+            let mut all_tiles = all_tiles.clone();
+            all_tiles.retain(|x| x.len() == 2);
+            let color = all_tiles[0].chars().last().unwrap();
+            if all_tiles.iter().filter(|&x| x.chars().last().unwrap() != color).count() == 0 {
+                result += 6;
+                fans.insert("混一色".to_string());
+            }
+        }
+    }
+    // 五门齐
+    {
+        let mut set1 = HashSet::new();
+        let mut set2 = HashSet::new();
+        set1.insert("E".to_string());
+        set1.insert("S".to_string());
+        set1.insert("W".to_string());
+        set1.insert("N".to_string());
+        set2.insert("Z".to_string());
+        set2.insert("F".to_string());
+        set2.insert("B".to_string());
+        if all_tiles.iter()
+                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'M')
+                   .count() != 0 &&
+           all_tiles.iter()
+                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'S')
+                   .count() != 0 &&
+           all_tiles.iter()
+                   .filter(|&x| x.len() == 2 && x.chars().last().unwrap() == 'T')
+                   .count() != 0 && all_tiles.iter().filter(|&x| set1.contains(x)).count() != 0 &&
+           all_tiles.iter().filter(|&x| set2.contains(x)).count() != 0 {
+            result += 6;
+            fans.insert("五门齐".to_string());
+        }
+    }
+    // 门前清
+    {
+        if tiles.chows.len() + tiles.pungs.len() + tiles.kongs.len() == 0 {
+            result += 2;
+            fans.insert("门前清".to_string());
+        }
+    }
+    // 断幺
+    {
+        if all_tiles.iter().filter(|&x| yao.contains(x)).count() == 0 {
+            result += 2;
+            fans.insert("断幺".to_string());
+        }
+    }
+    // 平和
+    {
+        if tiles.pungs.len() + tiles.kongs.len() + tiles.ckongs.len() + tiles.cpungs.len() == 0 {
+            result += 2;
+            fans.insert("平和".to_string());
+        }
+    }
+    // 箭刻
+    {
+        if !fans.contains("大三元") && !fans.contains("小三元") {
+            let count = all_pungs.iter().filter(|&x| jian.contains(x)).count() as i64;
+            if count > 0 {
+                result += 2 * count;
+                if count == 1 {
+                    fans.insert("箭刻".to_string());
+                } else {
+                    fans.insert(format!("箭刻×{}", count).to_string());
+                }
+            }
+        }
+    }
+    // 暗杠
+    {
+        let count = tiles.ckongs.len() as i64;
+        if count > 0 {
+            result += 2 * count;
+            if count == 1 {
+                fans.insert("暗杠".to_string());
+            } else {
+                fans.insert(format!("暗杠×{}", count).to_string());
+            }
+        }
+    }
+    // 自摸
+    {
+        if tsumo {
+            result += 1;
+            fans.insert("自摸".to_string());
+        }
+    }
+    // 一般高
+    {
+        if !fans.contains("一色四同顺") && !fans.contains("一色三同顺") {
+            let mut chow_count = HashMap::new();
+            for chow in all_chows.clone() {
+                if chow_count.contains_key(&chow) {
+                    let _chow_count = chow_count.clone();
+                    let count = _chow_count.get(&chow).unwrap();
+                    chow_count.insert(chow, count + 1);
+                } else {
+                    chow_count.insert(chow, 1);
+                }
+            }
+            let count = chow_count.values().filter(|&x| *x == 2).count();
+            if count > 0 {
+                result += count as i64;
+                if count == 1 {
+                    fans.insert("一般高".to_string());
+                } else {
+                    fans.insert(format!("一般高×{}", count).to_string());
+                }
+            }
+        }
+    }
+    // 喜相逢
+    {
+        if !fans.contains("三色三同顺") {
+            let mut set = HashSet::new();
+            for chow in all_chows.clone() {
+                set.insert(chow);
+            }
+            let mut count = 0;
+            for chow in set.clone() {
+                let ord = chow.chars().next().unwrap();
+                let color = chow.chars().last().unwrap();
+                if set.iter()
+                       .filter(|&x| x.chars().next().unwrap() == ord &&
+                                                                  x.chars().last().unwrap() !=
+                                                                      color)
+                       .count() != 0 {
+                    count += 1;
+                }
+            }
+            count /= 2;
+            if count > 0 {
+                result += count;
+                if count == 1 {
+                    fans.insert("喜相逢".to_string());
+                } else {
+                    fans.insert(format!("喜相逢×{}", count).to_string());
+                }
+            }
+        }
+    }
+    // 明杠
+    {
+        let count = tiles.kongs.len();
+        if count > 0 && count < 3 {
+            result += count as i64;
+            if count == 1 {
+                fans.insert("明杠".to_string());
+            } else {
+                fans.insert(format!("明杠×{}", count).to_string());
+            }
+        }
+    }
+    return (fans, result);
 }
