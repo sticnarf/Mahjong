@@ -36,8 +36,8 @@ fn main() {
         let seed = gen_seed();
         println!("$ Generated new random seeds");
         for position in group {
-            for _ in 0..1 {
-                // let seed = gen_seed();
+            for _ in 0..8 {
+                let seed = gen_seed();
                 println!("$ The positions are {:?}", position);
                 let rng = StdRng::from_seed(&seed.clone());
                 let paths = [
@@ -855,7 +855,8 @@ fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<i64> {
                 if tile == add {
                     continue;
                 }
-                let tiles = tiles.clone();
+                let mut tiles = tiles.clone();
+                tiles.hands.push(tile.to_string());
                 if combine(tiles).len() > 0 {
                     flag = false;
                     break;
