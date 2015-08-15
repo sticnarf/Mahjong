@@ -180,43 +180,49 @@ impl Game {
                 if flags == [false, false, false, false] {
                     return;
                 }
-            }
-            if self.stage == "outwait" {
-                if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                    let msg = match rx.try_recv() {
-                        Ok(msg) => msg,
-                        _ => {
-                            thread::sleep_ms(25);
-                            continue;
+                if self.stage == "outwait" {
+                    if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                        let msg = match rx.try_recv() {
+                            Ok(msg) => msg,
+                            _ => {
+                                thread::sleep_ms(25);
+                                continue;
+                            }
+                        };
+                        if flags[msg.id] {
+                            println!("$ Received message: {:?}", msg);
+                            self.messages.insert(msg.id, msg);
+                            println!("$ Added to queue!");
                         }
-                    };
-                    println!("$ Received message: {:?}", msg);
-                    self.messages.insert(msg.id, msg);
-                    println!("$ Added to queue!");
-                } else {
-                    self.outwait();
-                }
-            } else if self.stage == "qgwait" {
-                if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
-                    let msg = match rx.try_recv() {
-                        Ok(msg) => msg,
-                        _ => {
-                            thread::sleep_ms(25);
-                            continue;
+                    } else {
+                        self.outwait();
+                    }
+                } else if self.stage == "qgwait" {
+                    if self.last_time.to(PreciseTime::now()).num_milliseconds() < 550 {
+                        let msg = match rx.try_recv() {
+                            Ok(msg) => msg,
+                            _ => {
+                                thread::sleep_ms(25);
+                                continue;
+                            }
+                        };
+                        if flags[msg.id] {
+                            println!("$ Received message: {:?}", msg);
+                            self.messages.insert(msg.id, msg);
+                            println!("$ Added to queue!");
                         }
-                    };
-                    println!("$ Received message: {:?}", msg);
-                    self.messages.insert(msg.id, msg);
-                    println!("$ Added to queue!");
+                    } else {
+                        self.qgwait();
+                    }
                 } else {
-                    self.qgwait();
+                    let msg = match rx.recv() {
+                        Ok(msg) => msg,
+                        Err(_) => return
+                    };
+                    if flags[msg.id] {
+                        self.process(msg);
+                    }
                 }
-            } else {
-                let msg = match rx.recv() {
-                    Ok(msg) => msg,
-                    Err(_) => return
-                };
-                self.process(msg);
             }
         }
     }
@@ -263,9 +269,13 @@ impl Game {
                 }
             },
             None => {
-                //TODO
                 println!("$ {} sent invalid hu", id);
                 println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+                unsafe {
+                    flags[id] = false;
+                }
+                let tile = self.last_tile.clone();
+                self.out(id, tile);
             }
         }
     }
@@ -416,6 +426,11 @@ impl Game {
     fn agang(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
             println!("$ {} sent invalid agang", id);
+            unsafe {
+                flags[id] = false;
+            }
+            let tile = self.last_tile.clone();
+            self.out(id, tile);
             return;
         }
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 4 {
@@ -468,6 +483,14 @@ impl Game {
             self.messages.clear();
             println!("$ Waiting for action");
             self.last_time = PreciseTime::now();
+        } else {
+            println!("$ {} sent invalid jgang", id);
+            println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+            unsafe {
+                flags[id] = false;
+            }
+            let tile = self.last_tile.clone();
+            self.out(id, tile);
         }
     }
 
@@ -538,7 +561,6 @@ impl Game {
         self.tiles[self.action_id].hands.push(tile.clone());
         print!("Sent to {}: {}", self.action_id, format!("pick {}\n", tile));
         self.inputs[self.action_id].write(format!("pick {}\n", tile).to_string().as_bytes()).ok();
-
         self.inputs[self.action_id].flush().ok();
         for i in 0..4 {
             if i == self.action_id { continue; }
@@ -547,10 +569,19 @@ impl Game {
             print!("Sent to {}: {}", i, format!("mpick {}\n", self.action_id));
             self.inputs[i].flush().ok();
         }
-        self.stage = "out".to_string();
-        self.last_tile = tile;
-        println!("$ Waiting for action");
-        self.last_time = PreciseTime::now();
+        self.last_tile = tile.clone();
+        unsafe {
+            if flags[self.action_id] {
+                self.stage = "out".to_string();
+                println!("$ Waiting for action");
+                self.last_time = PreciseTime::now();
+            } else {
+                self.last_time = PreciseTime::now();
+                println!("$ Pass AI {} due to invalid operation", self.action_id);
+                let id = self.action_id;
+                self.out(id, tile);
+            }
+        }
     }
 
     fn out(&mut self, id: usize, tile: String) {
@@ -586,7 +617,11 @@ impl Game {
             None => {
                 println!("$ {} sent invalid out", id);
                 println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
-                //TODO
+                unsafe {
+                    flags[id] = false;
+                }
+                let tile = self.last_tile.clone();
+                self.out(id, tile);
             }
         }
     }
@@ -606,6 +641,9 @@ impl Game {
             None => {
                 println!("$ {} sent invalid hu", id);
                 println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+                unsafe {
+                    flags[id] = false;
+                }
             }
         }
         return false;
@@ -620,6 +658,9 @@ impl Game {
             return true;
         }
         println!("$ {} sent invalid gang", id);
+        unsafe {
+            flags[id] = false;
+        }
         return false;
     }
 
@@ -635,6 +676,9 @@ impl Game {
             return true;
         }
         println!("$ {} sent invalid peng", id);
+        unsafe {
+            flags[id] = false;
+        }
         return false;
     }
 
@@ -662,6 +706,10 @@ impl Game {
             self.tiles[id].chows.push(tile.to_string());
             println!("$ {} chi {}", id, tile);
             return true;
+        }
+        println!("$ {} sent invalid chi", id);
+        unsafe {
+            flags[id] = false;
         }
         return false;
     }
