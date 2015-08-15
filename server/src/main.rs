@@ -6,6 +6,8 @@ use std::process::*;
 use std::io::*;
 use std::thread;
 use std::env;
+use std::rc::Rc;
+use std::cell::RefCell;
 use rand::*;
 use std::sync::*;
 use std::sync::mpsc::*;
@@ -36,14 +38,14 @@ fn main() {
         let seed = gen_seed();
         println!("$ Generated new random seeds");
         for position in group {
+            let rng = Rc::new(RefCell::new(StdRng::from_seed(&seed.clone())));
             for _ in 0..4 {
                 println!("$ The positions are {:?}", position);
-                let rng = StdRng::from_seed(&seed.clone());
                 let paths = [
                     args[position[0]].clone(), args[position[1]].clone(),
                     args[position[2]].clone(), args[position[3]].clone()
                 ];
-                let mut game = Game::new(paths, rng);
+                let mut game = Game::new(paths, rng.clone());
                 game.run();
                 println!("$ This hand's score: {:?}", game.score);
                 let _board = board.clone();
@@ -95,7 +97,7 @@ struct Tiles {
 }
 
 struct Game {
-    rng: StdRng,
+    rng: Rc<RefCell<StdRng>>,
     paths: [String; 4],
     stage: String,
     inputs: Vec<ChildStdin>,
@@ -114,7 +116,7 @@ struct Game {
 static mut flags: [bool; 4] = [true, true, true, true];
 
 impl Game {
-    fn new(paths: [String; 4], rng: StdRng) -> Game {
+    fn new(paths: [String; 4], rng: Rc<RefCell<StdRng>>) -> Game {
         let tiles = [
             "1M", "2M", "3M", "4M", "5M", "6M", "7M", "8M", "9M", "1S", "2S", "3S", "4S", "5S",
             "6S", "7S", "8S", "9S", "1T", "2T", "3T", "4T", "5T", "6T", "7T", "8T", "9T", "E", "S",
@@ -128,7 +130,7 @@ impl Game {
             "W", "N", "Z", "F", "B"
         ];
         let mut left: Vec<_> = tiles.iter().map(|x| x.to_string()).collect();
-        rng.clone().shuffle(&mut left);
+        rng.borrow_mut().shuffle(&mut left);
         unsafe {
             flags = [true, true, true, true];
         }
@@ -512,7 +514,7 @@ impl Game {
     }
 
     fn start(&mut self) {
-        self.action_id = self.rng.gen_range(0, 4);
+        self.action_id = self.rng.borrow_mut().gen_range(0, 4);
         println!("$ {} acts first", self.action_id);
         for i in 0..4 {
             self.inputs[i].write(format!("first {}\n", self.action_id).as_bytes()).ok();
