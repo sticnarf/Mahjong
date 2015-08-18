@@ -758,7 +758,7 @@ impl Game {
     fn draw(&mut self) {
         unsafe {
             println!("$ Draw game!");
-            self.log.write_fmt(format_args!("draw\r\ndraw\r\n")).ok();
+            self.log.write_fmt(format_args!("draw\r\n\r\ndraw\r\n")).ok();
             for i in 0..4 {
                 flags[i] = false;
             }
