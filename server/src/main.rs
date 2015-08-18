@@ -37,6 +37,16 @@ fn main() {
         [[1, 2, 4, 3], [2, 4, 3, 1], [4, 3, 1, 2], [3, 1, 2, 4]],
     ];
     let mut round = 0;
+    let time_sec = get_time().sec;
+    let mut scoresheet =
+        LineWriter::new(File::create(format!("scoresheet_{}.csv", time_sec)).unwrap());
+    scoresheet.write(b"ScoreSheet\r\n").ok();
+    scoresheet.write_fmt(format_args!("Mahjong Contest {}\r\n", time_sec)).ok();
+    scoresheet
+    .write_fmt(format_args!("Player 0:,{},Player 1:,{},Player 2:,{},Player 3:,{}\r\n\r\n", args[1], args[2], args[3], args[4])).ok();
+    scoresheet.write_fmt(format_args!("Round,Game,Player0,Player1,Player2,Player3,Game ID\r\n"))
+        .ok();
+
     for group in &positions {
         let seed = gen_seed();
         println!("$ Generated new random seeds");
@@ -55,6 +65,11 @@ fn main() {
                     .ok();
                 game.run();
                 println!("$ This hand's score: {:?}", game.score);
+                let mut scores = [0; 4];
+                for i in 0..4 {
+                    scores[position[i] - 1] = game.score[i];
+                }
+                scoresheet.write_fmt(format_args!("{},{},{},{},{},{},{:x}\r\n", round, i, scores[0], scores[1],scores[2],scores[3],game.gid)).ok();
                 let _board = board.clone();
                 for i in 0..4 {
                     let score = _board.get(&args[position[i]].to_string()).unwrap();
@@ -81,6 +96,8 @@ fn main() {
             }
         }
     }
+    scoresheet.write(b"\r\n").ok();
+    scoresheet.write_fmt(format_args!("Total,,{},{},{},{}",board[&args[1]],board[&args[2]],board[&args[3]],board[&args[4]])).ok();
     println!("$ Final score: {:?}", board);
 }
 
@@ -118,6 +135,7 @@ struct Game {
     messages: HashMap<usize, Message>,
     base: i64,
     pids: [u32; 4],
+    gid: u64,
     log: LineWriter<File>
 }
 
@@ -143,6 +161,7 @@ impl Game {
             flags = [true, true, true, true];
         }
         fs::create_dir_all("log").ok();
+        let gid = thread_rng().gen_range(0x100000000000000u64, 0x1000000000000000u64);
         Game {
             rng: rng,
             paths: paths,
@@ -158,10 +177,8 @@ impl Game {
             messages: HashMap::new(),
             base: 4,
             pids: [0, 0, 0, 0],
-            log: LineWriter::new(File::create(format!("log/{:x}.mahjong.log",
-                                                      thread_rng().gen_range(0x10000000u64,
-                                                                             0x100000000u64)))
-                                     .unwrap())
+            gid: gid,
+            log: LineWriter::new(File::create(format!("log/{:x}.mahjong.log", gid)).unwrap())
         }
     }
 
