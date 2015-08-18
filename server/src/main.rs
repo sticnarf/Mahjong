@@ -307,6 +307,11 @@ impl Game {
                 "qgang" => {
                     if self.hu(msg.id) {
                         println!("$ {} robbed the kong", msg.id);
+                        unsafe {
+                            for i in 0..4 {
+                                flags[i] = false;
+                            }
+                        }
                         return;
                     }
                 },
@@ -773,19 +778,12 @@ struct Message {
 }
 
 fn post(tile: String) -> Option<String> {
-    let chars: Vec<char> = tile.chars().collect();
     if tile.len() == 2 {
-        let kind = chars[1];
-        if kind == 'M' || kind == 'T' || kind == 'S' {
-            let num = match chars[0].to_digit(10) {
-                Some(x) => x,
-                None => {
-                    return None;
-                }
-            };
-            if num < 9 && num > 0 {
-                return Some(format!("{}{}", num + 1, kind));
-            }
+        let mut chars = tile.chars();
+        let num = chars.next().unwrap().to_digit(10).unwrap();
+        let color = chars.next().unwrap();
+        if num < 9 {
+            return Some(format!("{}{}", num + 1, color));
         }
     }
     return None;
