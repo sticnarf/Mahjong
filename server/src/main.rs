@@ -146,7 +146,7 @@ struct Game {
 
 static mut flags: [bool; 4] = [true, true, true, true];
 
-static mut close_flag: bool = true;
+static mut close_flags: [bool; 4] = [true, true, true, true];
 
 impl Game {
     fn new(paths: [String; 4], rng: Rc<RefCell<StdRng>>) -> Game {
@@ -166,6 +166,7 @@ impl Game {
         rng.borrow_mut().shuffle(&mut left);
         unsafe {
             flags = [true, true, true, true];
+            close_flags = [true, true, true, true];
         }
         fs::create_dir_all("log").ok();
         let gid = thread_rng().gen_range(0x100000000000000u64, 0x1000000000000000u64);
@@ -192,8 +193,6 @@ impl Game {
     fn shut_ai(&mut self, id: usize) {
         unsafe {
             flags[id] = false;
-            close_flag = true;
-
             match std::env::consts::OS {
                 "windows" => {
                     Command::new("taskkill")
@@ -213,9 +212,10 @@ impl Game {
                         .ok();
                 }
             }
-            while close_flag {
+            while close_flags[id] {
                 thread::sleep_ms(10);
             }
+            println!("$ AI{} closed", id);
         }
     }
 
@@ -239,10 +239,16 @@ impl Game {
                     while flags[i] {
                         let mut result = String::new();
                         output.read_line(&mut result).ok();
-                        tx.send(Message { id: i, message: result.trim().to_string() }).ok();
+                        let message = result.trim().to_string();
+                        if message.len() > 0 {
+                            tx.send(Message { id: i, message: message }).ok();
+                        } else {
+                            tx.send(Message { id: i, message: "CLOSE".to_string() }).ok();
+                            break;
+                        }
                     }
-                    close_flag = false;
-                    println!("$ AI{} closed", i);
+                    close_flags[i] = false;
+                    println!("$ AI{} abandoned", i);
                 }
             });
         }
@@ -251,13 +257,50 @@ impl Game {
                 if flags == [false, false, false, false] {
                     return;
                 }
-                let msg = match rx.recv() {
+                let msg = match rx.try_recv() {
                     Ok(msg) => msg,
-                    Err(_) => return
+                    _ => {
+                        let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
+                        if duration > 5000 {
+                            if self.stage == "outwait" || self.stage == "qgwait" {
+                                for i in 0..4 {
+                                    if i != self.action_id && flags[i] &&
+                                       self.messages.contains_key(&i) {
+                                        self.shut_ai(i);
+                                        self.process(Message {
+                                            id: i,
+                                            message: "pass".to_string()
+                                        });
+                                    }
+                                }
+                            } else {
+                                let action_id = self.action_id;
+                                let last_tile = self.tiles[action_id].hands[0].to_string();
+                                self.process(Message {
+                                    id: action_id,
+                                    message: format!("out {}", last_tile).to_string()
+                                });
+                            }
+                            continue;
+                        } else {
+                            continue;
+                        }
+                    }
                 };
-                if flags[msg.id] {
-                    self.process(msg);
+                if msg.message == "CLOSE" {
+                    self.shut_ai(msg.id);
+                    if self.stage == "outwait" || self.stage == "qgwait" {
+                        self.process(Message { id: msg.id, message: "pass".to_string() });
+                    } else {
+                        let last_tile = self.tiles[msg.id].hands[0].to_string();
+                        self.process(Message {
+                            id: msg.id,
+                            message: format!("out {}", last_tile).to_string()
+                        });
+                    }
+                    continue;
                 }
+                self.process(msg);
             }
         }
     }
@@ -283,7 +326,7 @@ impl Game {
                         count += 1;
                     }
                 }
-                if self.messages.len() == count {
+                if self.messages.len() >= count {
                     if self.stage == "outwait" {
                         self.outwait();
                     } else {
