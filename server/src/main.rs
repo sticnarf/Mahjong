@@ -18,17 +18,51 @@ use time::*;
 use std::fs::File;
 use std::fs;
 
+static mut verbose: bool = false;
+static mut debug: bool = false;
+
+fn print(s: String) {
+    unsafe {
+        if verbose {
+            print!("{}", s);
+        }
+    }
+}
+
+fn println(s: String) {
+    print(format!("{}\n", s));
+}
+
 fn main() {
-    let args: Vec<_> = env::args().collect();
+    let mut args: Vec<_> = env::args().collect();
+    unsafe {
+        verbose = false;
+        debug = false;
+        match args.iter().position(|x| x == "-v") {
+            Some(index) => {
+                verbose = true;
+                args.remove(index);
+            },
+            _ => ()
+        };
+        match args.iter().position(|x| x == "-d") {
+            Some(index) => {
+                debug = true;
+                args.remove(index);
+            },
+            _ => ()
+        };
+    }
     if args.len() != 5 {
-        println!("Usage: ./server <AI1> <AI2> <AI3> <AI4>");
+        println!(
+            "Usage: ./server <AI1> <AI2> <AI3> <AI4> [-v] [-d]\n\t[-v]:\t\tVerbose mode\n\t[-d]:\t\tDebug mode (Output game logs)");
         process::exit(1);
     }
     let mut board: HashMap<String, i64> = HashMap::new();
     for i in 1..5 {
         board.insert(args[i].to_string(), 0);
     }
-    println!("$ Game start!");
+    println("$ Game start!".to_string());
     let positions = vec![
         [[1, 2, 3, 4], [2, 3, 4, 1], [3, 4, 1, 2], [4, 1, 2, 3]],
         [[1, 3, 2, 4], [3, 2, 4, 1], [2, 4, 1, 3], [4, 1, 3, 2]],
@@ -39,26 +73,39 @@ fn main() {
     ];
     let mut round = 0;
     let time_sec = get_time().sec;
-    let mut scoresheet =
-        LineWriter::new(File::create(format!("scoresheet_{}.csv", time_sec)).unwrap());
+
+    let scoresheet_filename = unsafe {
+        if debug {
+            format!("scoresheet_{}.csv", time_sec)
+        } else {
+            match std::env::consts::OS {
+                "windows" => "NUL",
+                _ => "/dev/null"
+            }
+            .to_string()
+        }
+    };
+    let mut scoresheet = LineWriter::new(File::create(scoresheet_filename).unwrap());
     scoresheet.write(b"ScoreSheet\r\n").ok();
     scoresheet.write_fmt(format_args!("Mahjong Contest {}\r\n", time_sec)).ok();
     scoresheet
-    .write_fmt(format_args!("Player 0:,{},Player 1:,{},Player 2:,{},Player 3:,{}\r\n\r\n", args[1], args[2], args[3], args[4]))
-        .ok()
-        ;
+    .write_fmt(format_args!("Player 0:,{},Player 1:,{},Player 2:,{},Player 3:,{}\r\n\r\n", args[1], args[2], args[3], args[4])).ok();
     scoresheet.write_fmt(format_args!("Round,Game,Player0,Player1,Player2,Player3,Game ID\r\n"))
-        .ok()
-        ;
+        .ok();
 
     for group in &positions {
         let seed = gen_seed();
-        println!("$ Generated new random seeds");
+        println("$ Generated new random seeds".to_string());
         for position in group {
             let rng = Rc::new(RefCell::new(StdRng::from_seed(&seed.clone())));
             round += 1;
             for i in 1..5 {
-                println!("$ The positions are {:?}", position);
+                print!("\r");
+                println("\n".to_string());
+                print!("Round {} Game {}", round, i);
+                println("\n".to_string());
+                std::io::stdout().flush().ok();
+                println(format!("$ The positions are {:?}", position));
                 let paths = [
                     args[position[0]].clone(), args[position[1]].clone(),
                     args[position[2]].clone(), args[position[3]].clone()
@@ -66,25 +113,22 @@ fn main() {
                 let mut game = Game::new(paths, rng.clone());
                 game.log.write_fmt(format_args!("ver {}\r\n", "1.0")).ok();
                 game.log.write_fmt(format_args!("Mahjong Contest Round {} Game {}\r\n", round, i))
-                    .ok()
-                    ;
+                    .ok();
                 game.run();
-                println!("$ This hand's score: {:?}", game.score);
+                println(format!("$ This hand's score: {:?}", game.score));
                 let mut scores = [0; 4];
                 for i in 0..4 {
                     scores[position[i] - 1] = game.score[i];
                 }
-                scoresheet.write_fmt(format_args!("{},{},{},{},{},{},{:x}\r\n", round, i, scores[0], scores[1],scores[2],scores[3],game.gid))
-                    .ok()
-                    ;
+                scoresheet.write_fmt(format_args!("{},{},{},{},{},{},{:x}\r\n", round, i, scores[0], scores[1],scores[2],scores[3],game.gid)).ok();
                 let _board = board.clone();
                 for i in 0..4 {
                     let score = _board.get(&args[position[i]].to_string()).unwrap();
                     let add = game.score[i];
                     board.insert(args[position[i]].to_string(), score + add);
-                    println!("$ AI{} shut", i);
+                    println(format!("$ AI{} shut", i));
                     let id = game.pids[i];
-                    println!("AI{} id={}", i, id);
+                    println(format!("AI{} id={}", i, id));
                     match std::env::consts::OS {
                         "windows" => {
                             Command::new("taskkill")
@@ -93,8 +137,7 @@ fn main() {
                                 .arg("/F")
                                 .arg("/T")
                                 .output()
-                                .ok()
-                                ;
+                                .ok();
                         },
                         _ => {
                             Command::new("kill")
@@ -102,8 +145,7 @@ fn main() {
                                 .arg("KILL")
                                 .arg(id.to_string())
                                 .output()
-                                .ok()
-                                ;
+                                .ok();
                         }
                     }
                 }
@@ -111,10 +153,13 @@ fn main() {
         }
     }
     scoresheet.write(b"\r\n").ok();
-    scoresheet.write_fmt(format_args!("Total,,{},{},{},{}",board[&args[1]],board[&args[2]],board[&args[3]],board[&args[4]]))
-        .ok()
-        ;
-    println!("$ Final score: {:?}", board);
+    scoresheet.write_fmt(format_args!("Total,,{},{},{},{}",board[&args[1]],board[&args[2]],board[&args[3]],board[&args[4]])).ok();
+    println!("\rFinal score:    ");
+    let mut scores: Vec<_> = board.iter().collect();
+    scores.sort_by(|a, b| b.1.cmp(a.1));
+    for i in 0..4 {
+        println!("{}: {}", scores[i].0, scores[i].1);
+    }
 }
 
 fn gen_seed() -> [usize; 8] {
@@ -178,9 +223,22 @@ impl Game {
         unsafe {
             flags = [true, true, true, true];
             close_flags = [true, true, true, true];
+            if debug {
+                fs::create_dir_all("log").ok();
+            }
         }
-        fs::create_dir_all("log").ok();
         let gid = thread_rng().gen_range(0x100000000000000u64, 0x1000000000000000u64);
+        let logfile_name = unsafe {
+            if debug {
+                format!("log/{:x}.mahjong.log", gid)
+            } else {
+                match std::env::consts::OS {
+                    "windows" => "NUL",
+                    _ => "/dev/null"
+                }
+                .to_string()
+            }
+        };
         Game {
             rng: rng,
             paths: paths,
@@ -197,7 +255,7 @@ impl Game {
             base: 4,
             pids: [0, 0, 0, 0],
             gid: gid,
-            log: LineWriter::new(File::create(format!("log/{:x}.mahjong.log", gid)).unwrap())
+            log: LineWriter::new(File::create(logfile_name).unwrap())
         }
     }
 
@@ -212,8 +270,7 @@ impl Game {
                         .arg("/F")
                         .arg("/T")
                         .output()
-                        .ok()
-                        ;
+                        .ok();
                 },
                 _ => {
                     Command::new("kill")
@@ -221,14 +278,13 @@ impl Game {
                         .arg("KILL")
                         .arg(self.pids[id].to_string())
                         .output()
-                        .ok()
-                        ;
+                        .ok();
                 }
             }
             while close_flags[id] {
                 thread::sleep_ms(10);
             }
-            println!("$ AI{} closed", id);
+            println(format!("$ AI{} closed", id));
         }
     }
 
@@ -248,7 +304,7 @@ impl Game {
             let mut output = BufReader::new(command.stdout.unwrap());
             thread::spawn(move || {
                 unsafe {
-                    println!("$ AI{} started", i);
+                    println(format!("$ AI{} started", i));
                     while flags[i] {
                         let mut result = String::new();
                         output.read_line(&mut result).ok();
@@ -256,14 +312,12 @@ impl Game {
                         if message.len() > 0 {
                             tx.send(Message { id: i, message: message }).ok();
                         } else {
-                            tx.send(Message { id: i, message: "CLOSE".to_string() })
-                                .ok()
-                                ;
+                            tx.send(Message { id: i, message: "CLOSE".to_string() }).ok();
                             break;
                         }
                     }
                     close_flags[i] = false;
-                    println!("$ AI{} abandoned", i);
+                    println(format!("$ AI{} abandoned", i));
                 }
             });
         }
@@ -340,7 +394,7 @@ impl Game {
     }
 
     fn process(&mut self, msg: Message) {
-        println!("$ Received message: {:?}", msg);
+        println(format!("$ Received message: {:?}", msg));
         if self.stage == "outwait" || self.stage == "qgwait" {
             if msg.id == self.action_id {
                 return;
@@ -349,10 +403,10 @@ impl Game {
             if duration >= 550 {
                 let penalty = (duration - 450) / 100;
                 self.score[msg.id] -= penalty;
-                println!("$ {} was fined {} due to timeout", msg.id, penalty);
+                println(format!("$ {} was fined {} due to timeout", msg.id, penalty));
             }
             self.messages.insert(msg.id, msg);
-            println!("$ Added to queue! Queue size: {}", self.messages.len());
+            println(format!("$ Added to queue! Queue size: {}", self.messages.len()));
             unsafe {
                 let mut count = 0;
                 for i in 0..4 {
@@ -370,7 +424,7 @@ impl Game {
             }
         } else {
             let v: Vec<&str> = msg.message.split(' ').collect();
-            println!("$ vector = {:?}", v);
+            println(format!("$ vector = {:?}", v));
             match v[0].trim() {
                 "join" => self.join(msg.id),
                 "out" => self.out(msg.id, v[1].trim().to_string()),
@@ -384,7 +438,7 @@ impl Game {
 
     fn tsumo(&mut self, id: usize) {
         if self.stage != "out" || id != self.action_id {
-            println!("$ {} sent invalid hu", id);
+            println(format!("$ {} sent invalid hu", id));
             return;
         }
         let time = PreciseTime::now();
@@ -395,7 +449,7 @@ impl Game {
                 if duration >= 1050 {
                     let penalty = (duration - 950) / 100;
                     self.score[id] -= penalty;
-                    println!("$ {} was fined {} due to timeout", id, penalty);
+                    println(format!("$ {} was fined {} due to timeout", id, penalty));
                 }
                 self.score[id] += 3 * (x + self.base);
                 for i in 0..4 {
@@ -403,7 +457,7 @@ impl Game {
                         self.score[i] -= x + self.base;
                     }
                 }
-                println!("$ {} tsumo!", id);
+                println(format!("$ {} tsumo!", id));
                 self.log.write_fmt(format_args!("hu {}\r\n",id)).ok();
                 self.log.write(b"\r\n").ok();
                 self.log.write_fmt(format_args!("win {} tsumo\r\n",id)).ok();
@@ -419,8 +473,8 @@ impl Game {
                 }
             },
             None => {
-                println!("$ {} sent invalid hu", id);
-                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+                println(format!("$ {} sent invalid hu", id));
+                println(format!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands));
                 self.shut_ai(id);
                 let tile = self.last_tile.clone();
                 self.out(id, tile);
@@ -442,7 +496,7 @@ impl Game {
             match msg.message.trim() {
                 "qgang" => {
                     if self.hu(msg.id) {
-                        println!("$ {} robbed the kong", msg.id);
+                        println(format!("$ {} robbed the kong", msg.id));
                         unsafe {
                             for i in 0..4 {
                                 flags[i] = false;
@@ -489,7 +543,7 @@ impl Game {
             match v[0].trim() {
                 "hu" => {
                     if self.hu(msg.id) {
-                        println!("{} hu!", msg.id);
+                        println(format!("{} hu!", msg.id));
                         unsafe {
                             for i in 0..4 {
                                 flags[i] = false;
@@ -510,10 +564,9 @@ impl Game {
                                 .write(format!("mgang {} {}\r\n", msg.id, self.last_tile.clone())
                                            .to_string()
                                            .as_bytes())
-                                .ok()
-                                ;
-                            print!("Sent to {}: {}", i,
-                                   format!("mgang {} {}\r\n", msg.id, self.last_tile.clone()));
+                                .ok();
+                            print(format!("Sent to {}: {}", i, format!("mgang {} {}\r\n", msg.id,
+                                                                       self.last_tile.clone())));
 
                             self.inputs[i].flush().ok();
                         }
@@ -534,10 +587,9 @@ impl Game {
                                 .write(format!("mpeng {} {}\r\n", msg.id, self.last_tile.clone())
                                            .to_string()
                                            .as_bytes())
-                                .ok()
-                                ;
-                            print!("Sent to {}: {}", i,
-                                   format!("mpeng {} {}\r\n", msg.id, self.last_tile.clone()));
+                                .ok();
+                            print(format!("Sent to {}: {}", i, format!("mpeng {} {}\r\n", msg.id,
+                                                                       self.last_tile.clone())));
 
                             self.inputs[i].flush().ok();
                         }
@@ -558,10 +610,9 @@ impl Game {
                                 .write(format!("mchi {} {}\r\n", msg.id, v[1].trim())
                                            .to_string()
                                            .as_bytes())
-                                .ok()
-                                ;
-                            print!("Sent to {}: {}", i,
-                                   format!("mchi {} {}\r\n", msg.id, v[1].trim()));
+                                .ok();
+                            print(format!("Sent to {}: {}", i,
+                                          format!("mchi {} {}\r\n", msg.id, v[1].trim())));
 
                             self.inputs[i].flush().ok();
                         }
@@ -578,10 +629,10 @@ impl Game {
             match self.messages.get(&post) {
                 Some(msg) => {
                     if msg.message.split(' ').next().unwrap() == "chi" {
-                        println!("$ {} failed to chi", post);
+                        println(format!("$ {} failed to chi", post));
                         self.inputs[post].write("mfail\r\n".to_string().as_bytes()).ok().expect(
                             "L603");
-                        print!("Sent to {}: mfail\r\n", post);
+                        print(format!("Sent to {}: mfail\r\n", post));
 
                         self.inputs[post].flush().ok();
                     }
@@ -601,7 +652,7 @@ impl Game {
 
     fn agang(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
-            println!("$ {} sent invalid agang", id);
+            println(format!("$ {} sent invalid agang", id));
             self.shut_ai(id);
             let tile = self.last_tile.clone();
             self.out(id, tile);
@@ -612,11 +663,11 @@ impl Game {
             if duration >= 1050 {
                 let penalty = (duration - 950) / 100;
                 self.score[id] -= penalty;
-                println!("$ {} was fined {} due to timeout", id, penalty);
+                println(format!("$ {} was fined {} due to timeout", id, penalty));
             }
             self.tiles[id].hands.retain(|x| x != &tile);
             self.tiles[id].ckongs.push(tile.to_string());
-            println!("$ {} gang {} concealedly", id, tile);
+            println(format!("$ {} gang {} concealedly", id, tile));
             self.log.write_fmt(format_args!("agang {} {}\r\n",id,tile)).ok();
             for i in 0..4 {
                 unsafe {
@@ -624,17 +675,14 @@ impl Game {
                         continue;
                     }
                 }
-                self.inputs[i]
-                    .write(format!("magang {}\r\n", id).to_string().as_bytes())
-                    .ok()
-                    ;
-                print!("Sent to {}: {}", i, format!("magang {}\r\n", id));
+                self.inputs[i].write(format!("magang {}\r\n", id).to_string().as_bytes()).ok();
+                print(format!("Sent to {}: {}", i, format!("magang {}\r\n", id)));
                 self.inputs[i].flush().ok();
             }
             self.pick();
         } else {
-            println!("$ {} sent invalid agang", id);
-            println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+            println(format!("$ {} sent invalid agang", id));
+            println(format!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands));
             self.shut_ai(id);
             let tile = self.last_tile.clone();
             self.out(id, tile);
@@ -650,14 +698,14 @@ impl Game {
             if duration >= 1050 {
                 let penalty = (duration - 950) / 100;
                 self.score[id] -= penalty;
-                println!("$ {} was fined {} due to timeout", id, penalty);
+                println(format!("$ {} was fined {} due to timeout", id, penalty));
             }
             let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
             self.tiles[id].hands.remove(index);
             let index = self.tiles[id].pungs.iter().position(|x| *x == tile).unwrap();
             self.tiles[id].pungs.remove(index);
             self.tiles[id].kongs.push(tile.clone());
-            println!("$ {} gang {} by adding", id, tile);
+            println(format!("$ {} gang {} by adding", id, tile));
             self.log.write_fmt(format_args!("jgang {} {}\r\n",id,tile)).ok();
             for i in 0..4 {
                 unsafe {
@@ -667,19 +715,18 @@ impl Game {
                 }
                 self.inputs[i]
                     .write(format!("mjgang {} {}\r\n", id, tile).to_string().as_bytes())
-                    .ok()
-                    ;
-                print!("Sent to {}: {}", i, format!("mjgang {} {}\r\n", id, tile));
+                    .ok();
+                print(format!("Sent to {}: {}", i, format!("mjgang {} {}\r\n", id, tile)));
                 self.inputs[i].flush().ok();
             }
             self.stage = "qgwait".to_string();
             self.last_tile = tile;
             self.messages.clear();
-            println!("$ Waiting for action");
+            println("$ Waiting for action".to_string());
             self.last_time = PreciseTime::now();
         } else {
-            println!("$ {} sent invalid jgang", id);
-            println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+            println(format!("$ {} sent invalid jgang", id));
+            println(format!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands));
             self.shut_ai(id);
             let tile = self.last_tile.clone();
             self.out(id, tile);
@@ -688,11 +735,11 @@ impl Game {
 
     fn join(&mut self, id: usize) {
         if self.stage != "join" {
-            println!("$ {} sent invalid join message", id);
+            println(format!("$ {} sent invalid join message", id));
             return;
         }
         self.join_counter.insert(id);
-        println!("$ {} joined", id);
+        println(format!("$ {} joined", id));
         if self.join_counter.len() == 4 {
             for i in 0..4 {
                 unsafe {
@@ -701,7 +748,7 @@ impl Game {
                     }
                 }
                 self.inputs[i].write(format!("id {}\r\n", i).as_bytes()).ok();
-                print!("Sent to {}: {}", i, format!("id {}\r\n", i));
+                print(format!("Sent to {}: {}", i, format!("id {}\r\n", i)));
                 self.inputs[i].flush().ok();
             }
             self.start();
@@ -710,7 +757,7 @@ impl Game {
 
     fn start(&mut self) {
         self.action_id = self.rng.borrow_mut().gen_range(0, 4);
-        println!("$ {} acts first", self.action_id);
+        println(format!("$ {} acts first", self.action_id));
         self.log.write_fmt(format_args!("{}\r\n",self.action_id)).ok();
         for i in 0..4 {
             unsafe {
@@ -720,7 +767,7 @@ impl Game {
             }
             self.inputs[i].write(format!("first {}\r\n", self.action_id).as_bytes()).ok().expect(
                 "L737");
-            print!("Sent to {}: {}", i, format!("first {}\r\n", self.action_id));
+            print(format!("Sent to {}: {}", i, format!("first {}\r\n", self.action_id)));
             self.inputs[i].flush().ok();
         }
         self.init();
@@ -743,23 +790,23 @@ impl Game {
                 cchows: Vec::new(),
                 cpungs: Vec::new()
             });
-            print!("$ {}'s first 13 tiles are:", i);
+            print(format!("$ {}'s first 13 tiles are:", i));
             for j in 0..13 {
                 let tile = self.left.pop().unwrap();
                 output.push_str(" ");
                 output.push_str(&tile);
-                print!("{} ", tile);
+                print(format!("{} ", tile));
                 if j != 0 {
                     self.log.write(b" ").ok();
                 }
                 self.log.write_fmt(format_args!("{}",tile)).ok();
                 self.tiles[i].hands.push(tile);
             }
-            println!("");
+            println(String::new());
             output.push_str("\r\n");
             self.log.write(b"\r\n").ok();
             self.inputs[i].write(output.as_bytes()).ok();
-            print!("Sent to {}: {}", i, output);
+            print(format!("Sent to {}: {}", i, output));
             self.inputs[i].flush().ok();
         }
         self.log.write(b"\r\n").ok();
@@ -773,17 +820,14 @@ impl Game {
         }
         unsafe {
             let tile = self.left.pop().unwrap();
-            println!("$ {} picked {}", self.action_id, tile);
-            self.log.write_fmt(format_args!("pick {} {}\r\n",self.action_id,tile))
-                .ok()
-                ;
+            println(format!("$ {} picked {}", self.action_id, tile));
+            self.log.write_fmt(format_args!("pick {} {}\r\n",self.action_id,tile)).ok();
             self.tiles[self.action_id].hands.push(tile.clone());
-            print!("Sent to {}: {}", self.action_id, format!("pick {}\r\n", tile));
+            print(format!("Sent to {}: {}", self.action_id, format!("pick {}\r\n", tile)));
             if flags[self.action_id] {
                 self.inputs[self.action_id]
                     .write(format!("pick {}\r\n", tile).to_string().as_bytes())
-                    .ok()
-                    ;
+                    .ok();
                 self.inputs[self.action_id].flush().ok();
             }
             for i in 0..4 {
@@ -793,19 +837,18 @@ impl Game {
                 if i == self.action_id { continue; }
                 self.inputs[i]
                     .write(format!("mpick {}\r\n", self.action_id).to_string().as_bytes())
-                    .ok()
-                    ;
-                print!("Sent to {}: {}", i, format!("mpick {}\r\n", self.action_id));
+                    .ok();
+                print(format!("Sent to {}: {}", i, format!("mpick {}\r\n", self.action_id)));
                 self.inputs[i].flush().ok();
             }
             self.last_tile = tile.clone();
             self.stage = "out".to_string();
             if flags[self.action_id] {
-                println!("$ Waiting for action");
+                println("$ Waiting for action".to_string());
                 self.last_time = PreciseTime::now();
             } else {
                 self.last_time = PreciseTime::now();
-                println!("$ Pass AI {} due to invalid operation", self.action_id);
+                println(format!("$ Pass AI {} due to invalid operation", self.action_id));
                 let id = self.action_id;
                 self.out(id, tile);
             }
@@ -814,18 +857,18 @@ impl Game {
 
     fn out(&mut self, id: usize, tile: String) {
         if self.stage != "out" || id != self.action_id {
-            println!("$ {} sent invalid out", id);
+            println(format!("$ {} sent invalid out", id));
             return;
         }
         match self.tiles[id].hands.iter().position(|x| *x == tile) {
             Some(index) => {
-                println!("$ {} discarded {}", id, tile);
+                println(format!("$ {} discarded {}", id, tile));
                 self.log.write_fmt(format_args!("out {} {}\r\n",id,tile)).ok();
                 let duration = self.last_time.to(PreciseTime::now()).num_milliseconds();
                 if duration >= 1050 {
                     let penalty = (duration - 950) / 100;
                     self.score[id] -= penalty;
-                    println!("$ {} was fined {} due to timeout", id, penalty);
+                    println(format!("$ {} was fined {} due to timeout", id, penalty));
                 }
                 self.tiles[id].hands.remove(index);
                 for i in 0..4 {
@@ -839,9 +882,9 @@ impl Game {
                         .write(format!("mout {} {}\r\n", self.action_id, tile)
                                    .to_string()
                                    .as_bytes())
-                        .ok()
-                        ;
-                    print!("Sent to {}: {}", i, format!("mout {} {}\r\n", self.action_id, tile));
+                        .ok();
+                    print(format!("Sent to {}: {}", i,
+                                  format!("mout {} {}\r\n", self.action_id, tile)));
                     self.inputs[i].flush().ok();
                 }
                 self.last_tile = tile;
@@ -850,8 +893,8 @@ impl Game {
                 self.last_time = PreciseTime::now();
             },
             None => {
-                println!("$ {} sent invalid out", id);
-                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+                println(format!("$ {} sent invalid out", id));
+                println(format!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands));
                 self.shut_ai(id);
                 let tile = self.last_tile.clone();
                 self.out(id, tile);
@@ -865,9 +908,7 @@ impl Game {
                 let (x, fans) = tuple;
                 self.log.write_fmt(format_args!("hu {}\r\n",id)).ok();
                 self.log.write(b"\r\n").ok();
-                self.log.write_fmt(format_args!("win {} ron {}\r\n",id,self.action_id))
-                    .ok()
-                    ;
+                self.log.write_fmt(format_args!("win {} ron {}\r\n",id,self.action_id)).ok();
                 self.log.write_fmt(format_args!("fans {}\r\n",fans.len())).ok();
                 for (fan, value) in &fans {
                     self.log.write_fmt(format_args!("{}:{}\r\n",fan,value)).ok();
@@ -883,8 +924,8 @@ impl Game {
                 return true;
             },
             None => {
-                println!("$ {} sent invalid hu", id);
-                println!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands);
+                println(format!("$ {} sent invalid hu", id));
+                println(format!("$ {}'s tiles are: {:?}", id, self.tiles[id].hands));
                 self.shut_ai(id);
             }
         }
@@ -895,14 +936,12 @@ impl Game {
         let tile = self.last_tile.clone();
         if self.tiles[id].hands.iter().filter(|&x| *x == tile).count() == 3 {
             self.tiles[id].hands.retain(|x| x != &tile);
-            println!("$ {} gang {}", id, tile);
-            self.log.write_fmt(format_args!("gang {} {} {}\r\n",id,self.action_id,tile))
-                .ok()
-                ;
+            println(format!("$ {} gang {}", id, tile));
+            self.log.write_fmt(format_args!("gang {} {} {}\r\n",id,self.action_id,tile)).ok();
             self.tiles[id].kongs.push(tile);
             return true;
         }
-        println!("$ {} sent invalid gang", id);
+        println(format!("$ {} sent invalid gang", id));
         self.shut_ai(id);
         return false;
     }
@@ -914,14 +953,12 @@ impl Game {
                 let index = self.tiles[id].hands.iter().position(|x| *x == tile).unwrap();
                 self.tiles[id].hands.remove(index);
             }
-            println!("$ {} peng {}", id, tile);
-            self.log.write_fmt(format_args!("peng {} {} {}\r\n",id,self.action_id,tile))
-                .ok()
-                ;
+            println(format!("$ {} peng {}", id, tile));
+            self.log.write_fmt(format_args!("peng {} {} {}\r\n",id,self.action_id,tile)).ok();
             self.tiles[id].pungs.push(tile);
             return true;
         }
-        println!("$ {} sent invalid peng", id);
+        println(format!("$ {} sent invalid peng", id));
         self.shut_ai(id);
         return false;
     }
@@ -948,20 +985,18 @@ impl Game {
                 self.tiles[id].hands.remove(index);
             }
             self.tiles[id].chows.push(tile.to_string());
-            println!("$ {} chi {}", id, tile);
-            self.log.write_fmt(format_args!("chi {} {} {}\r\n",id,self.action_id,tile))
-                .ok()
-                ;
+            println(format!("$ {} chi {}", id, tile));
+            self.log.write_fmt(format_args!("chi {} {} {}\r\n",id,self.action_id,tile)).ok();
             return true;
         }
-        println!("$ {} sent invalid chi", id);
+        println(format!("$ {} sent invalid chi", id));
         self.shut_ai(id);
         return false;
     }
 
     fn draw(&mut self) {
         unsafe {
-            println!("$ Draw game!");
+            println("$ Draw game!".to_string());
             self.log.write_fmt(format_args!("draw\r\n\r\ndraw\r\n")).ok();
             for i in 0..4 {
                 flags[i] = false;
@@ -1154,13 +1189,13 @@ fn cal_fan(tiles: Tiles, add: String, tsumo: bool) -> Option<(i64, HashMap<Strin
             }
         }
     }
-    println!("Tiles are: {:?}", tiles);
-    print!("Fans are: ");
+    println(format!("Tiles are: {:?}", tiles));
+    print("Fans are: ".to_string());
     for fan in fans.keys() {
-        print!("{} ", fan);
+        print(format!("{} ", fan));
     }
-    println!("");
-    println!("Altogether {}!", result);
+    println(String::new());
+    println(format!("Altogether {}!", result));
     return Some((result, fans));
 }
 
