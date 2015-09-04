@@ -2,11 +2,11 @@
 
 本项目为一个麻将服务器，供AI比赛使用。本文档分为两部分，第一部分为此服务器使用的[麻将规则](#规则)，第二部分为[交互规范](#交互规则)。编译后的服务器程序下载：
 
-- [Mac](https://github.com/wormful/Mahjong/releases/download/v0.2.0/server_v0.2.0_Mac_OS_X.0)
-- [Win_x86_64](https://github.com/wormful/Mahjong/releases/download/v0.2.0/server_v0.2.0_Win_x86_64.exe)
-- [Ubuntu_x86_64](https://github.com/wormful/Mahjong/releases/download/v0.2.0/server_v0.2.0_Ubuntu_x86_64)
+- [Mac](https://github.com/wormful/Mahjong/releases/download/v1.0.0/server_v1.0.0_Mac_OS_X)
+- [Win_x86_64](https://github.com/wormful/Mahjong/releases/download/v1.0.0/server_v1.0.0_Win_x86_64.exe)
+- [Ubuntu_x86_64](https://github.com/wormful/Mahjong/releases/download/v1.0.0/server_v1.0.0_Ubuntu_x86_64)
 
-其他系统需要下载源码，使用 Rust 1.3 Beta 以上版本的编译器自行编译。
+其他系统需要下载源码，使用 Rust Nightly 版本的编译器自行编译。
 
 ### 服务器使用说明
 
@@ -14,15 +14,15 @@
 
 ```
 # *nix
-$ ./server_bin <AI1> <AI2> <AI3> <AI4>
+$ ./server_bin <AI1> <AI2> <AI3> <AI4> [-v] [-d]
 ```
 
 ```
 # Windows
-server_bin <AI1> <AI2> <AI3> <AI4>
+server_bin <AI1> <AI2> <AI3> <AI4> [-v] [-d]
 ```
 
-服务器会在当前文件夹下的log文件夹中生成每盘的日志文件。
+开启`-d`选项后，服务器会在当前文件夹下的log文件夹中生成每盘的日志文件。
 
 ## 规则
 
